@@ -39,7 +39,7 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-white">
-                {businessConfig?.name || 'Savanna Bar'} <span className="text-xs font-normal text-amber-400 ml-1 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Cashier POS</span>
+                {businessConfig?.name || 'Club Valentine'} <span className="text-xs font-normal text-amber-400 ml-1 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Cashier POS</span>
               </h1>
               <p className="text-xs text-slate-400">Cashier: <strong className="text-slate-200">{user.name}</strong></p>
             </div>

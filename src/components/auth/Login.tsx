@@ -200,7 +200,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
           <div className="mx-auto w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center mb-3 shadow-inner">
             <Wine className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Savanna Bar POS</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Club Valentine</h1>
           <p className="text-amber-100 text-xs mt-1">Standalone Bar & Stock Management System</p>
         </div>
 

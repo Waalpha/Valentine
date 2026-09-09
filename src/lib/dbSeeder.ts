@@ -10,7 +10,7 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
     if (!bizSnap.exists()) {
       const defaultBiz: BusinessConfig = {
         id: DEFAULT_BUSINESS_ID,
-        name: "Savanna Lounge & Pub",
+        name: "Club Valentine",
         phone: "+254 712 345 678",
         location: "Nairobi CBD",
         address: "Tom Mboya Street, Nairobi",
@@ -18,10 +18,18 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
         openingTime: "10:00",
         closingTime: "23:59",
         lowStockThreshold: 10,
-        receiptHeader: "SAVANNA LOUNGE & PUB\nOfficial Bar & Restaurant",
+        receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant",
         receiptFooter: "Thank you! Please drink responsibly."
       };
       await setDoc(bizRef, defaultBiz);
+    } else {
+      const currentData = bizSnap.data() as BusinessConfig;
+      if (currentData.name?.includes('Savanna')) {
+        await setDoc(bizRef, {
+          name: "Club Valentine",
+          receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant"
+        }, { merge: true });
+      }
     }
 
     // 2. Check/Create Categories

@@ -45,7 +45,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
               <Wine className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-white tracking-tight">{businessConfig?.name || 'Savanna Bar'}</h1>
+              <h1 className="text-base font-bold text-white tracking-tight">{businessConfig?.name || 'Club Valentine'}</h1>
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                 Admin Control
               </span>

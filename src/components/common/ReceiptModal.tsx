@@ -35,7 +35,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         <div id="receipt-printable" className="my-6 space-y-4 font-mono text-sm text-gray-800">
           <div className="text-center">
             <h2 className="text-lg font-bold uppercase tracking-wide text-gray-900">
-              {businessConfig?.name || 'Savanna Lounge & Pub'}
+              {businessConfig?.name || 'Club Valentine'}
             </h2>
             <p className="text-xs text-gray-500">{businessConfig?.address || 'Nairobi CBD'}</p>
             <p className="text-xs text-gray-500">Tel: {businessConfig?.phone || '+254 712 345 678'}</p>

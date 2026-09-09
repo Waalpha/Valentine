@@ -14,7 +14,7 @@ interface SettingsViewProps {
 export function SettingsView({ user, businessConfig, onConfigUpdated }: SettingsViewProps) {
   const [formData, setFormData] = useState<BusinessConfig>({
     id: DEFAULT_BUSINESS_ID,
-    name: 'Savanna Lounge & Pub',
+    name: 'Club Valentine',
     phone: '+254 712 345 678',
     location: 'Nairobi CBD',
     address: 'Tom Mboya Street, Nairobi',
@@ -22,7 +22,7 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     openingTime: '10:00',
     closingTime: '23:59',
     lowStockThreshold: 10,
-    receiptHeader: 'SAVANNA LOUNGE & PUB',
+    receiptHeader: 'CLUB VALENTINE',
     receiptFooter: 'Thank you! Please drink responsibly.'
   });
   const [success, setSuccess] = useState('');

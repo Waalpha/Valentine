@@ -106,7 +106,7 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
         <div className="text-center space-y-3">
           <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-sm font-medium text-slate-300">Loading Savanna Bar POS System...</p>
+          <p className="text-sm font-medium text-slate-300">Loading Club Valentine POS System...</p>
         </div>
       </div>
     );
