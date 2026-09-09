@@ -1,7 +1,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
+
+// Suppress verbose SDK connection retries to prevent noisy console logs
+setLogLevel('error');
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -25,11 +28,17 @@ try {
   firestoreInstance = initializeFirestore(app, {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
-    })
+    }),
+    experimentalForceLongPolling: true,
   }, dbId);
 } catch (e) {
-  // If already initialized or unsupported in current container, fallback to getFirestore
-  firestoreInstance = getFirestore(app, dbId);
+  try {
+    firestoreInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    }, dbId);
+  } catch (e2) {
+    firestoreInstance = getFirestore(app, dbId);
+  }
 }
 export const db = firestoreInstance;
 

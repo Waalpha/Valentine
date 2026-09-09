@@ -3,7 +3,8 @@ import { UserProfile, BusinessConfig, Sale, Product } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
-import { Receipt, Search, Download, Calendar, Filter, DollarSign, ShoppingBag } from 'lucide-react';
+import { Receipt, Search, Download, Calendar, Filter, DollarSign, ShoppingBag, RotateCcw, Trash2 } from 'lucide-react';
+import { clearAllPaymentRecords } from '../../lib/offlineManager';
 
 interface SalesReportsViewProps {
   user: UserProfile;
@@ -20,6 +21,12 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [cashierFilter, setCashierFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Clear Payment / Sales Records State
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [clearSuccess, setClearSuccess] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -128,14 +135,32 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
           <h2 className="text-2xl font-bold text-gray-900">Sales Reports & Analytics</h2>
           <p className="text-sm text-gray-500">Filter, inspect, and export historical bar sales data</p>
         </div>
-        <button
-          onClick={handleExportCSV}
-          className="inline-flex items-center space-x-2 rounded-2xl bg-slate-900 hover:bg-slate-800 px-5 py-3 text-sm font-bold text-white shadow-md transition-all active:scale-95"
-        >
-          <Download className="w-4 h-4" />
-          <span>Export CSV Report</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => {
+              setConfirmText('');
+              setShowClearModal(true);
+            }}
+            className="inline-flex items-center space-x-2 rounded-2xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 px-4 py-3 text-sm font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4 text-red-600" />
+            <span>Clear / Reset Sales</span>
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="inline-flex items-center space-x-2 rounded-2xl bg-slate-900 hover:bg-slate-800 px-5 py-3 text-sm font-bold text-white shadow-md transition-all active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export CSV Report</span>
+          </button>
+        </div>
       </div>
+
+      {clearSuccess && (
+        <div className="flex items-center space-x-3 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200">
+          <span>{clearSuccess}</span>
+        </div>
+      )}
 
       {/* Summary KPI Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -261,6 +286,81 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center space-x-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-2xl">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Clear All Payment Records?</h3>
+            </div>
+
+            <p className="text-sm text-gray-600 leading-relaxed">
+              This action will permanently delete all sales transactions, payment histories (Cash, M-Pesa, Card), and cashier daily shift closings across both cloud Firestore and local storage.
+            </p>
+
+            <div className="rounded-2xl bg-amber-50 p-4 border border-amber-200 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">What will be preserved:</p>
+              <p>• All 70 catalog products, categories & prices</p>
+              <p>• Current stock inventory levels</p>
+              <p>• Staff and cashier logins</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Type <span className="font-bold text-red-600">CLEAR</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                placeholder="Type CLEAR"
+                className="w-full rounded-xl border border-gray-300 p-3 text-sm font-mono uppercase focus:border-red-600 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex space-x-3 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                disabled={clearing}
+                className="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setClearing(true);
+                  setClearSuccess('');
+                  try {
+                    const res = await clearAllPaymentRecords(user);
+                    setShowClearModal(false);
+                    setConfirmText('');
+                    setSales([]);
+                    setClearSuccess(`Successfully cleared all payment records (${res.deletedSales} sales, ${res.deletedClosings} closings deleted). Starting fresh!`);
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1400);
+                  } catch (err: any) {
+                    console.error('Failed to clear payment records:', err);
+                  } finally {
+                    setClearing(false);
+                  }
+                }}
+                disabled={confirmText !== 'CLEAR' || clearing}
+                className="flex items-center space-x-2 rounded-xl bg-red-600 hover:bg-red-700 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-red-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{clearing ? 'Clearing...' : 'Permanently Clear'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

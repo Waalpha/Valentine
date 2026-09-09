@@ -1,6 +1,6 @@
 import { Sale, Product, BusinessConfig } from '../types';
 import { db, DEFAULT_BUSINESS_ID } from './firebase';
-import { doc, setDoc, updateDoc, increment, getDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, increment, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
 import { logAuditAction } from './utils';
 
 export interface OfflineStatus {
@@ -221,4 +221,57 @@ export async function syncOfflineQueue(): Promise<{ syncedCount: number; errors:
   notifyListeners();
 
   return { syncedCount, errors };
+}
+
+/**
+ * Permanently delete all sales receipts, payment records, and daily shift closings
+ * to start completely fresh with zero sales. Products, inventory, and users remain intact.
+ */
+export async function clearAllPaymentRecords(user?: { uid: string; name: string }): Promise<{ deletedSales: number; deletedClosings: number }> {
+  // 1. Clear local caches immediately
+  localStorage.removeItem('bar_pos_local_sales');
+  localStorage.removeItem('bar_pos_offline_sales_queue');
+  localStorage.removeItem('bar_pos_last_sync_time');
+  notifyListeners();
+
+  let deletedSales = 0;
+  let deletedClosings = 0;
+
+  // 2. Clear remote Firestore sales
+  try {
+    const salesSnap = await getDocs(collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales'));
+    for (const d of salesSnap.docs) {
+      await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales', d.id));
+      deletedSales++;
+    }
+  } catch (e) {
+    console.warn('Error clearing remote sales:', e);
+  }
+
+  // 3. Clear remote daily shift closings
+  try {
+    const closingsSnap = await getDocs(collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'dailyClosings'));
+    for (const d of closingsSnap.docs) {
+      await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'dailyClosings', d.id));
+      deletedClosings++;
+    }
+  } catch (e) {
+    console.warn('Error clearing remote dailyClosings:', e);
+  }
+
+  // 4. Clear remote cash reconciliations
+  try {
+    const reconciliationsSnap = await getDocs(collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'cashReconciliations'));
+    for (const d of reconciliationsSnap.docs) {
+      await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'cashReconciliations', d.id));
+    }
+  } catch (e) {
+    console.warn('Error clearing remote cashReconciliations:', e);
+  }
+
+  if (user) {
+    logAuditAction(user.uid, user.name, 'PAYMENTS_CLEARED', 'Cleared all payment records and sales receipts to start fresh').catch(() => {});
+  }
+
+  return { deletedSales, deletedClosings };
 }

@@ -3,7 +3,8 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
-import { Settings, Save, CheckCircle2, AlertCircle, Building2 } from 'lucide-react';
+import { Settings, Save, CheckCircle2, AlertCircle, Building2, Trash2, AlertTriangle, RotateCcw } from 'lucide-react';
+import { clearAllPaymentRecords } from '../../lib/offlineManager';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -28,6 +29,12 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Clear Payment / Sales Records State
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearSuccess, setClearSuccess] = useState('');
+  const [confirmText, setConfirmText] = useState('');
 
   useEffect(() => {
     if (businessConfig) {
@@ -189,6 +196,121 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
           </button>
         </div>
       </form>
+
+      {/* Danger Zone: Fresh Start */}
+      <div className="bg-red-50/50 rounded-3xl p-8 border border-red-200 shadow-xs space-y-4">
+        <div className="flex items-start space-x-4">
+          <div className="p-3 bg-red-100 rounded-2xl text-red-600 shrink-0">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-red-950">Data Reset & Fresh Start</h3>
+            <p className="text-sm text-red-800 mt-1">
+              Clear all sales records, payment transactions (Cash, M-Pesa, Card), and cashier daily shift closings.
+              Use this when launching live, resetting test data, or starting fresh with 0.00 sales.
+            </p>
+            <p className="text-xs text-red-700 mt-2 font-medium">
+              Note: All catalog products, inventory stock counts, prices, and staff user logins are safely preserved.
+            </p>
+          </div>
+        </div>
+
+        {clearSuccess && (
+          <div className="flex items-center space-x-3 rounded-2xl bg-emerald-100 p-4 text-sm text-emerald-900 border border-emerald-300">
+            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-700" />
+            <span>{clearSuccess}</span>
+          </div>
+        )}
+
+        <div className="pt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmText('');
+              setShowClearModal(true);
+            }}
+            className="flex items-center space-x-2 rounded-2xl bg-red-600 hover:bg-red-700 px-6 py-3 text-sm font-bold text-white shadow-md shadow-red-600/20 transition-all active:scale-95 cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Clear All Payment Records</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Confirmation Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center space-x-3 text-red-600">
+              <div className="p-3 bg-red-100 rounded-2xl">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Clear All Payment Records?</h3>
+            </div>
+
+            <p className="text-sm text-gray-600 leading-relaxed">
+              This action will permanently delete all sales transactions, payment histories, and cashier daily shift closings across both cloud Firestore and local storage.
+            </p>
+
+            <div className="rounded-2xl bg-amber-50 p-4 border border-amber-200 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">What will be preserved:</p>
+              <p>• All 70 catalog products, categories & prices</p>
+              <p>• Current stock inventory levels</p>
+              <p>• Staff and cashier logins</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Type <span className="font-bold text-red-600">CLEAR</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                placeholder="Type CLEAR"
+                className="w-full rounded-xl border border-gray-300 p-3 text-sm font-mono uppercase focus:border-red-600 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex space-x-3 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                disabled={clearing}
+                className="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setClearing(true);
+                  setError('');
+                  setClearSuccess('');
+                  try {
+                    const res = await clearAllPaymentRecords(user);
+                    setShowClearModal(false);
+                    setConfirmText('');
+                    setClearSuccess(`Successfully cleared all payment records (${res.deletedSales} sales, ${res.deletedClosings} closings deleted).`);
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1400);
+                  } catch (err: any) {
+                    setError(err.message || 'Failed to clear payment records');
+                  } finally {
+                    setClearing(false);
+                  }
+                }}
+                disabled={confirmText !== 'CLEAR' || clearing}
+                className="flex items-center space-x-2 rounded-xl bg-red-600 hover:bg-red-700 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-red-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{clearing ? 'Clearing...' : 'Permanently Clear'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
