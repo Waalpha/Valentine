@@ -113,7 +113,14 @@ export default function App() {
   }
 
   if (!firebaseUser || !userProfile) {
-    return <Login />;
+    return (
+      <Login
+        onLoginSuccess={(user) => {
+          setUserProfile(user);
+          setFirebaseUser({ uid: user.uid, email: user.email } as any);
+        }}
+      />
+    );
   }
 
   // Render Cashier Interface

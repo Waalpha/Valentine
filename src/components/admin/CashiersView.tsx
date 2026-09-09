@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
-import { auth, db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
 import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle } from 'lucide-react';
@@ -87,22 +86,14 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
         await logAuditAction(user.uid, user.name, 'USER_UPDATED', `Updated account for ${name} (${email})`, editingUser.uid);
         setSuccess(`Successfully updated account for ${name}!`);
       } else {
-        // Create new user
-        let uid = 'user-' + Date.now();
-        try {
-          const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-          uid = userCred.user.uid;
-        } catch (authErr: any) {
-          if (authErr.code !== 'auth/operation-not-allowed' && !authErr.message?.includes('operation-not-allowed')) {
-            throw authErr;
-          }
-        }
-
-        const newProfile: UserProfile = {
+        // Create new user profile in database
+        const uid = 'user-' + Date.now();
+        const newProfile: UserProfile & { password?: string } = {
           uid,
           email: email.trim(),
           name: name.trim(),
           role: role,
+          password: password.trim(),
           businessId: DEFAULT_BUSINESS_ID,
           status: 'active',
           createdAt: new Date().toISOString()
@@ -111,10 +102,12 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
         try {
           await setDoc(doc(db, 'users', uid), newProfile);
         } catch (dbErr) {
-          const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
-          localUsers.unshift(newProfile);
-          localStorage.setItem('bar_pos_local_users', JSON.stringify(localUsers));
+          console.warn('Could not save user to Firestore directly, updating local cache:', dbErr);
         }
+
+        const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+        localUsers.unshift(newProfile);
+        localStorage.setItem('bar_pos_local_users', JSON.stringify(localUsers));
 
         await logAuditAction(user.uid, user.name, 'USER_CREATED', `Created ${role} account for ${name} (${email})`, uid);
         setSuccess(`Successfully created ${role} account for ${name}!`);

@@ -21,6 +21,9 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     categoryId: '',
@@ -160,7 +163,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
 
           const name = (nameIdx !== -1 && cleanRow[nameIdx]) ? cleanRow[nameIdx] : `Product ${i}`;
           const categoryId = (catIdIdx !== -1 && cleanRow[catIdIdx]) ? cleanRow[catIdIdx] : categories[0]?.id || 'cat-beer';
-          const categoryName = (catNameIdx !== -1 && cleanRow[catNameIdx]) ? cleanRow[categoryNameIndex = catNameIdx] : 'Beers';
+          const categoryName = (catNameIdx !== -1 && cleanRow[catNameIdx]) ? cleanRow[catNameIdx] : 'Beers';
           const unitType = (unitIdx !== -1 && cleanRow[unitIdx]) ? cleanRow[unitIdx] as Product['unitType'] : 'Bottle';
           const buyingPrice = (buyIdx !== -1 && !isNaN(Number(cleanRow[buyIdx]))) ? Number(cleanRow[buyIdx]) : 150;
           const sellingPrice = (sellIdx !== -1 && !isNaN(Number(cleanRow[sellIdx]))) ? Number(cleanRow[sellIdx]) : 250;
@@ -206,6 +209,31 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleDeleteAllProducts = async () => {
+    if (products.length === 0) return;
+    setIsDeletingAll(true);
+    try {
+      // Delete all products from Firestore
+      for (const p of products) {
+        try {
+          await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', p.id));
+        } catch (err) {
+          console.warn(`Could not delete product ${p.id} from Firestore`, err);
+        }
+      }
+      setProducts([]);
+      localStorage.setItem('bar_pos_local_products', JSON.stringify([]));
+      await logAuditAction(user.uid, user.name, 'PRODUCTS_DELETED_ALL', `Deleted all ${products.length} products from catalog`);
+      setIsDeleteAllModalOpen(false);
+      setDeleteAllConfirmText('');
+    } catch (err: any) {
+      console.error(err);
+      alert('Failed to delete all products: ' + err.message);
+    } finally {
+      setIsDeletingAll(false);
+    }
   };
 
   const handleOpenAddModal = () => {
@@ -329,7 +357,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           <h2 className="text-2xl font-bold text-gray-900">Product Management</h2>
           <p className="text-sm text-gray-500">Create, edit, and configure bar products & pricing or bulk import/export</p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <input
             type="file"
             ref={fileInputRef}
@@ -352,6 +380,18 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           >
             <Download className="w-4 h-4 text-gray-500" />
             <span>Export CSV</span>
+          </button>
+          <button
+            onClick={() => {
+              setDeleteAllConfirmText('');
+              setIsDeleteAllModalOpen(true);
+            }}
+            disabled={products.length === 0}
+            className="inline-flex items-center space-x-2 rounded-2xl bg-red-50 border border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 text-sm font-bold text-red-600 shadow-sm transition-all active:scale-95"
+            title="Delete All Products"
+          >
+            <Trash2 className="w-4 h-4 text-red-500" />
+            <span>Delete All</span>
           </button>
           <button
             onClick={handleOpenAddModal}
@@ -625,6 +665,78 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {isDeleteAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center space-x-2.5 text-red-600">
+                <div className="rounded-full bg-red-100 p-2">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Delete All Products</h3>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isDeletingAll) {
+                    setIsDeleteAllModalOpen(false);
+                    setDeleteAllConfirmText('');
+                  }
+                }}
+                disabled={isDeletingAll}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-red-50 p-4 border border-red-200 text-xs text-red-800 space-y-1">
+              <p className="font-bold">Caution: Destructive Action</p>
+              <p>
+                This will permanently remove <strong>all {products.length} products</strong>, stock counts, and pricing configurations from both the database and local storage. This action cannot be reversed.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-gray-700">
+                To confirm, please type <span className="font-mono font-bold text-red-600">DELETE</span> below:
+              </label>
+              <input
+                type="text"
+                disabled={isDeletingAll}
+                value={deleteAllConfirmText}
+                onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/20"
+              />
+            </div>
+
+            <div className="pt-2 flex space-x-3">
+              <button
+                type="button"
+                onClick={handleDeleteAllProducts}
+                disabled={deleteAllConfirmText.trim().toUpperCase() !== 'DELETE' || isDeletingAll}
+                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md transition-all flex items-center justify-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingAll ? 'Deleting Products...' : 'Yes, Delete All'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingAll}
+                onClick={() => {
+                  setIsDeleteAllModalOpen(false);
+                  setDeleteAllConfirmText('');
+                }}
+                className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

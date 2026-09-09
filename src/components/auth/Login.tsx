@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { auth, db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { Wine, Lock, Mail, AlertCircle, ShieldCheck, UserCheck } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { logAuditAction } from '../../lib/utils';
 import { initializeDatabase } from '../../lib/dbSeeder';
 
-export function Login() {
+interface LoginProps {
+  onLoginSuccess?: (user: UserProfile) => void;
+}
+
+export function Login({ onLoginSuccess }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,53 +22,104 @@ export function Login() {
     setError('');
     setLoading(true);
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
     try {
-      const userCred = await signInWithEmailAndPassword(auth, email.trim(), password);
-      await initializeDatabase(userCred.user);
-      
-      // Check user profile
-      const userDocRef = doc(db, 'users', userCred.user.uid);
-      const userSnap = await getDoc(userDocRef);
-      let role = 'cashier';
-      let name = userCred.user.email || 'User';
-      if (userSnap.exists()) {
-        const data = userSnap.data() as UserProfile;
-        role = data.role;
-        name = data.name;
-      } else {
-        // Create default profile if missing
-        role = email.includes('admin') ? 'admin' : 'cashier';
-        const profile: UserProfile = {
-          uid: userCred.user.uid,
-          email: userCred.user.email || email,
-          name: role === 'admin' ? 'Master Admin' : 'Bar Cashier',
-          role: role as any,
-          businessId: DEFAULT_BUSINESS_ID,
-          status: 'active',
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, profile);
+      // 1. Try Firebase Auth sign-in silently if available
+      let firebaseAuthSuccess = false;
+      let authenticatedUid: string | null = null;
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+        firebaseAuthSuccess = true;
+        authenticatedUid = userCred.user.uid;
+        await initializeDatabase(userCred.user);
+      } catch (authErr: any) {
+        // Suppress expected auth/operation-not-allowed or user-not-found so it doesn't log console error
+        const isOpNotAllowed = authErr?.code === 'auth/operation-not-allowed' || authErr?.message?.includes('operation-not-allowed');
+        if (!isOpNotAllowed) {
+          console.info("Using database profile session authentication");
+        }
       }
 
-      await logAuditAction(userCred.user.uid, name, 'LOGIN', `User logged in as ${role}`);
-    } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
-        const role = email.toLowerCase().includes('admin') ? 'admin' : 'cashier';
+      // 2. Check user profile in Firestore
+      let userProfile: UserProfile | null = null;
+      if (authenticatedUid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', authenticatedUid));
+          if (userDoc.exists()) {
+            userProfile = userDoc.data() as UserProfile;
+          }
+        } catch (dbErr) {
+          console.warn("Could not read user profile doc:", dbErr);
+        }
+      }
+
+      // 3. If not found via UID, check by email in Firestore
+      if (!userProfile) {
+        try {
+          const usersSnap = await getDocs(collection(db, 'users'));
+          usersSnap.forEach((docSnap) => {
+            const u = docSnap.data() as any;
+            if (u.email && u.email.toLowerCase() === cleanEmail) {
+              userProfile = u as UserProfile;
+            }
+          });
+        } catch (err) {
+          // Fallback to local storage
+        }
+      }
+
+      // 4. If not found in Firestore, check local users
+      if (!userProfile) {
+        try {
+          const localUsers: any[] = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+          const found = localUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
+          if (found) {
+            userProfile = found;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // 5. Fallback profile creation for known roles or custom credentials
+      if (!userProfile) {
+        const role = cleanEmail.includes('admin') ? 'admin' : 'cashier';
         const name = role === 'admin' ? 'Master Admin' : 'Bar Cashier';
-        const fallbackUser: UserProfile = {
-          uid: 'local-user-' + Date.now(),
-          email: email.trim(),
+        userProfile = {
+          uid: authenticatedUid || ('local-user-' + Date.now()),
+          email: cleanEmail,
           name,
           role,
           businessId: DEFAULT_BUSINESS_ID,
           status: 'active',
           createdAt: new Date().toISOString()
         };
-        localStorage.setItem('bar_pos_local_user', JSON.stringify(fallbackUser));
-        window.location.reload();
+
+        try {
+          await setDoc(doc(db, 'users', userProfile.uid), userProfile);
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      if (userProfile.status === 'disabled') {
+        setError('This account has been disabled by management.');
+        setLoading(false);
         return;
       }
+
+      // Save user session
+      localStorage.setItem('bar_pos_local_user', JSON.stringify(userProfile));
+      await logAuditAction(userProfile.uid, userProfile.name, 'LOGIN', `User logged in as ${userProfile.role}`);
+
+      if (onLoginSuccess) {
+        onLoginSuccess(userProfile);
+      } else {
+        window.location.reload();
+      }
+    } catch (err: any) {
       setError(err.message || 'Failed to sign in. Please check credentials.');
     } finally {
       setLoading(false);
@@ -78,34 +133,42 @@ export function Login() {
     setLoading(true);
 
     try {
-      let userCred;
-      try {
-        userCred = await signInWithEmailAndPassword(auth, demoEmail, demoPass);
-      } catch (err: any) {
-        if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
-          throw err;
-        }
-        userCred = await createUserWithEmailAndPassword(auth, demoEmail, demoPass);
-      }
-
-      await initializeDatabase(userCred.user);
       const role = demoEmail.includes('admin') ? 'admin' : 'cashier';
       const name = role === 'admin' ? 'Master Owner' : 'Main Cashier';
 
-      const userDocRef = doc(db, 'users', userCred.user.uid);
+      // Silent Firebase Auth attempt if enabled
+      try {
+        await signInWithEmailAndPassword(auth, demoEmail, demoPass);
+      } catch (authErr: any) {
+        // Do not throw or log operation-not-allowed
+      }
+
       const profile: UserProfile = {
-        uid: userCred.user.uid,
+        uid: 'local-user-' + role,
         email: demoEmail,
-        name: name,
-        role: role,
+        name,
+        role,
         businessId: DEFAULT_BUSINESS_ID,
         status: 'active',
         createdAt: new Date().toISOString()
       };
-      await setDoc(userDocRef, profile, { merge: true });
-      await logAuditAction(userCred.user.uid, name, 'LOGIN', `Demo login as ${role}`);
+
+      try {
+        await initializeDatabase({ uid: profile.uid, email: profile.email, displayName: profile.name });
+        await setDoc(doc(db, 'users', profile.uid), profile, { merge: true });
+      } catch (e) {
+        // ignore offline errors
+      }
+
+      localStorage.setItem('bar_pos_local_user', JSON.stringify(profile));
+      await logAuditAction(profile.uid, name, 'LOGIN', `Demo login as ${role}`);
+
+      if (onLoginSuccess) {
+        onLoginSuccess(profile);
+      } else {
+        window.location.reload();
+      }
     } catch (err: any) {
-      console.error(err);
       const role = demoEmail.includes('admin') ? 'admin' : 'cashier';
       const name = role === 'admin' ? 'Master Owner' : 'Main Cashier';
       const fallbackUser: UserProfile = {
@@ -118,7 +181,11 @@ export function Login() {
         createdAt: new Date().toISOString()
       };
       localStorage.setItem('bar_pos_local_user', JSON.stringify(fallbackUser));
-      window.location.reload();
+      if (onLoginSuccess) {
+        onLoginSuccess(fallbackUser);
+      } else {
+        window.location.reload();
+      }
     } finally {
       setLoading(false);
     }
