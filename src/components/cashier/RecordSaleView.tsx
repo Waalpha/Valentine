@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, BusinessConfig, Product, SaleItem, Sale, PaymentMethod } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { collection, getDocs, doc, runTransaction } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
 import {
   Search,
@@ -71,7 +71,11 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       setCategories(cachedCats);
     }
 
-    // 2. Fetch fresh from Firestore if network is available
+    // 2. Only fetch fresh from Firestore if actively online
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return;
+    }
+
     try {
       const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
       const prodSnap = await getDocs(prodRef);
@@ -95,8 +99,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
         cacheLocalCategories(cats);
       }
     } catch (err) {
-      console.warn("Working offline, using local cached catalog:", err);
-      // Already populated from cache
+      console.warn("Using local cached catalog:", err);
     }
   }
 
@@ -193,10 +196,19 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
     }
   }, [totalCartAmount, paymentMethod]);
 
-  const handleRecordSale = async () => {
+  const handleRecordSale = () => {
     if (cart.length === 0) {
       setError('Cart is empty. Please select products to record sale.');
       return;
+    }
+
+    // Cash validation if custom amount was entered
+    if (paymentMethod === 'Cash' && amountTendered) {
+      const tenderedNum = parseFloat(amountTendered);
+      if (!isNaN(tenderedNum) && tenderedNum < totalCartAmount) {
+        setError(`Amount tendered (${formatCurrency(tenderedNum, currency)}) is less than total bill (${formatCurrency(totalCartAmount, currency)}).`);
+        return;
+      }
     }
 
     setLoading(true);
@@ -225,71 +237,38 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
         createdAt: now.getTime()
       };
 
-      // 1. Immediately persist locally & queue for sync (ensures 100% offline reliability)
+      // 1. Instantly persist locally & queue for sync (ensures 100% offline-first reliability)
       saveSaleLocallyAndQueue(completedSale);
 
-      // 2. If online, attempt immediate Firestore upload & sync
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          await runTransaction(db, async (transaction) => {
-            // 1. ALL READS FIRST
-            const prodSnaps: { [id: string]: { snap: any; currentStock: number } } = {};
-            for (const item of cart) {
-              if (item.productId.startsWith('custom-')) continue;
-              const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', item.productId);
-              const prodSnap = await transaction.get(prodRef);
-              if (prodSnap.exists()) {
-                prodSnaps[item.productId] = { snap: prodSnap, currentStock: prodSnap.data().currentStock || 0 };
-              }
-            }
-
-            // 2. ALL WRITES AFTER ALL READS
-            for (const item of cart) {
-              if (item.productId.startsWith('custom-')) continue;
-              const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', item.productId);
-              const info = prodSnaps[item.productId];
-              if (info) {
-                transaction.update(prodRef, {
-                  currentStock: Math.max(0, info.currentStock - item.quantity),
-                  updatedAt: new Date().toISOString()
-                });
-              }
-            }
-
-            // Create Sale document
-            const saleRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales', saleId);
-            transaction.set(saleRef, completedSale);
-          });
-
-          // Sync any remaining offline queue items in background
-          syncOfflineQueue();
-        } catch (onlineTxErr) {
-          console.warn("Direct online write deferred, sale safely queued locally:", onlineTxErr);
-        }
+      // 2. Immediately update in-memory products state with deducted stock so UI reflects sold units
+      const updatedLocalProds = getLocalCachedProducts();
+      if (updatedLocalProds.length > 0) {
+        setProducts(updatedLocalProds);
       }
 
-      // Audit log (best-effort)
-      try {
-        await logAuditAction(
-          user.uid,
-          user.name,
-          'SALE_RECORDED',
-          `Recorded sale of ${formatCurrency(totalCartAmount)} via ${paymentMethod} (${cart.length} items)`,
-          saleId
-        );
-      } catch (auditErr) {
-        // Suppress offline audit failure
-      }
-
-      // Success state for receipt modal
+      // 3. Immediately display receipt modal & reset cart - zero delay for customer!
       setSuccessSale(completedSale);
       setCart([]);
       setAmountTendered('');
       setReferenceCode('');
       setMobileView('catalog');
-      await fetchProductsAndCategories(); // refresh available stock
+
+      // 4. Background non-blocking audit log & Firestore sync if online
+      logAuditAction(
+        user.uid,
+        user.name,
+        'SALE_RECORDED',
+        `Recorded sale of ${formatCurrency(totalCartAmount, currency)} via ${paymentMethod} (${cart.length} items)`,
+        saleId
+      ).catch(() => {});
+
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        syncOfflineQueue().catch((syncErr) => {
+          console.warn('Background sync deferred:', syncErr);
+        });
+      }
     } catch (err: any) {
-      console.error("Transaction failed:", err);
+      console.error("Sale recording failed:", err);
       setError(err.message || 'Failed to complete transaction.');
     } finally {
       setLoading(false);

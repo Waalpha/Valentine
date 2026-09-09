@@ -90,12 +90,156 @@ export function cacheLocalProducts(products: Product[]) {
   }
 }
 
+const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
+  {
+    id: 'prod-tusker',
+    name: 'Tusker Lager (500ml)',
+    categoryId: 'cat-beer',
+    categoryName: 'Beer',
+    unitType: 'Bottle',
+    buyingPrice: 180,
+    sellingPrice: 250,
+    openingStock: 120,
+    currentStock: 120,
+    stockAdded: 0,
+    minStockLevel: 15,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-whitecap',
+    name: 'White Cap Lager',
+    categoryId: 'cat-beer',
+    categoryName: 'Beer',
+    unitType: 'Bottle',
+    buyingPrice: 180,
+    sellingPrice: 250,
+    openingStock: 80,
+    currentStock: 80,
+    stockAdded: 0,
+    minStockLevel: 10,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-guinness',
+    name: 'Guinness Stout',
+    categoryId: 'cat-beer',
+    categoryName: 'Beer',
+    unitType: 'Bottle',
+    buyingPrice: 220,
+    sellingPrice: 300,
+    openingStock: 60,
+    currentStock: 60,
+    stockAdded: 0,
+    minStockLevel: 10,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-heineken',
+    name: 'Heineken',
+    categoryId: 'cat-beer',
+    categoryName: 'Beer',
+    unitType: 'Bottle',
+    buyingPrice: 250,
+    sellingPrice: 350,
+    openingStock: 40,
+    currentStock: 40,
+    stockAdded: 0,
+    minStockLevel: 8,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-smirnoff',
+    name: 'Smirnoff Vodka (750ml)',
+    categoryId: 'cat-spirits',
+    categoryName: 'Spirits',
+    unitType: 'Bottle',
+    buyingPrice: 1200,
+    sellingPrice: 1800,
+    openingStock: 25,
+    currentStock: 25,
+    stockAdded: 0,
+    minStockLevel: 5,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-chrome',
+    name: 'Chrome Vodka (250ml)',
+    categoryId: 'cat-spirits',
+    categoryName: 'Spirits',
+    unitType: 'Bottle',
+    buyingPrice: 350,
+    sellingPrice: 500,
+    openingStock: 50,
+    currentStock: 50,
+    stockAdded: 0,
+    minStockLevel: 10,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-jw-black',
+    name: 'Johnnie Walker Black Label',
+    categoryId: 'cat-spirits',
+    categoryName: 'Spirits',
+    unitType: 'Bottle',
+    buyingPrice: 2800,
+    sellingPrice: 4000,
+    openingStock: 15,
+    currentStock: 15,
+    stockAdded: 0,
+    minStockLevel: 3,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'prod-coke',
+    name: 'Coca Cola (Soda 300ml)',
+    categoryId: 'cat-soft',
+    categoryName: 'Soft Drinks',
+    unitType: 'Bottle',
+    buyingPrice: 60,
+    sellingPrice: 100,
+    openingStock: 100,
+    currentStock: 100,
+    stockAdded: 0,
+    minStockLevel: 20,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+];
+
+const DEFAULT_FALLBACK_CATEGORIES = [
+  { id: 'cat-beer', name: 'Beer' },
+  { id: 'cat-spirits', name: 'Spirits' },
+  { id: 'cat-soft', name: 'Soft Drinks' },
+  { id: 'cat-cider', name: 'Ciders' }
+];
+
 export function getLocalCachedProducts(): Product[] {
   try {
-    return JSON.parse(localStorage.getItem('bar_pos_local_products') || '[]');
+    const stored = JSON.parse(localStorage.getItem('bar_pos_local_products') || '[]');
+    if (Array.isArray(stored) && stored.length > 0) {
+      return stored;
+    }
   } catch (e) {
-    return [];
+    // fallback
   }
+  // Initialize with fallback products if cache is empty
+  cacheLocalProducts(DEFAULT_FALLBACK_PRODUCTS);
+  return DEFAULT_FALLBACK_PRODUCTS;
 }
 
 export function cacheLocalCategories(categories: { id: string; name: string }[]) {
@@ -108,10 +252,15 @@ export function cacheLocalCategories(categories: { id: string; name: string }[])
 
 export function getLocalCachedCategories(): { id: string; name: string }[] {
   try {
-    return JSON.parse(localStorage.getItem('bar_pos_local_categories') || '[]');
+    const stored = JSON.parse(localStorage.getItem('bar_pos_local_categories') || '[]');
+    if (Array.isArray(stored) && stored.length > 0) {
+      return stored;
+    }
   } catch (e) {
-    return [];
+    // fallback
   }
+  cacheLocalCategories(DEFAULT_FALLBACK_CATEGORIES);
+  return DEFAULT_FALLBACK_CATEGORIES;
 }
 
 /**

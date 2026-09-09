@@ -35,6 +35,46 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
     fetchClosingData();
   }, []);
 
+  function populateLocalData() {
+    const prods = getLocalCachedProducts();
+    const initialCounts: Record<string, number> = {};
+    prods.forEach(p => {
+      initialCounts[p.id] = p.currentStock;
+    });
+    setProducts(prods);
+    setActualCounts(initialCounts);
+
+    const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+    const todayLocal = localSales.filter(s => s.date === todayStr);
+    let tSales = 0;
+    let cash = 0;
+    let mpesa = 0;
+    let card = 0;
+    let other = 0;
+    let itemsCount = 0;
+
+    todayLocal.forEach(s => {
+      tSales += s.totalAmount;
+      if (s.paymentMethod === 'Cash') cash += s.totalAmount;
+      if (s.paymentMethod === 'M-Pesa') mpesa += s.totalAmount;
+      if (s.paymentMethod === 'Card') card += s.totalAmount;
+      if (s.paymentMethod === 'Other') other += s.totalAmount;
+      s.items.forEach(i => {
+        itemsCount += i.quantity;
+      });
+    });
+
+    setSalesSummary({
+      totalSales: tSales,
+      cash,
+      mpesa,
+      card,
+      other,
+      transactions: todayLocal.length,
+      itemsSold: itemsCount
+    });
+  }
+
   async function fetchClosingData() {
     // Check local closings first
     try {
@@ -44,6 +84,13 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       }
     } catch (e) {
       // ignore
+    }
+
+    // If offline, populate immediately from local storage without waiting for remote Firestore
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      populateLocalData();
+      setLoading(false);
+      return;
     }
 
     try {
@@ -103,43 +150,7 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       });
     } catch (err) {
       console.warn("Working offline: calculating daily closing from local storage:", err);
-      const prods = getLocalCachedProducts();
-      const initialCounts: Record<string, number> = {};
-      prods.forEach(p => {
-        initialCounts[p.id] = p.currentStock;
-      });
-      setProducts(prods);
-      setActualCounts(initialCounts);
-
-      const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
-      const todayLocal = localSales.filter(s => s.date === todayStr);
-      let tSales = 0;
-      let cash = 0;
-      let mpesa = 0;
-      let card = 0;
-      let other = 0;
-      let itemsCount = 0;
-
-      todayLocal.forEach(s => {
-        tSales += s.totalAmount;
-        if (s.paymentMethod === 'Cash') cash += s.totalAmount;
-        if (s.paymentMethod === 'M-Pesa') mpesa += s.totalAmount;
-        if (s.paymentMethod === 'Card') card += s.totalAmount;
-        if (s.paymentMethod === 'Other') other += s.totalAmount;
-        s.items.forEach(i => {
-          itemsCount += i.quantity;
-        });
-      });
-
-      setSalesSummary({
-        totalSales: tSales,
-        cash,
-        mpesa,
-        card,
-        other,
-        transactions: todayLocal.length,
-        itemsSold: itemsCount
-      });
+      populateLocalData();
     } finally {
       setLoading(false);
     }
