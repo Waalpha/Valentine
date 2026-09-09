@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
 const firebaseConfig = {
@@ -19,6 +19,18 @@ export const auth = getAuth(app);
 
 // Use custom Firestore database ID if specified in config
 const dbId = (firebaseConfigData as any).firestoreDatabaseId || '(default)';
-export const db = getFirestore(app, dbId);
+
+let firestoreInstance;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  }, dbId);
+} catch (e) {
+  // If already initialized or unsupported in current container, fallback to getFirestore
+  firestoreInstance = getFirestore(app, dbId);
+}
+export const db = firestoreInstance;
 
 export const DEFAULT_BUSINESS_ID = 'main-bar-01';

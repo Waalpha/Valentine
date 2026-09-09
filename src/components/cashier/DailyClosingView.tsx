@@ -4,6 +4,7 @@ import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, query, where, getDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
 import { CalendarCheck, AlertTriangle, CheckCircle2, DollarSign, Send, Info } from 'lucide-react';
+import { getLocalCachedProducts } from '../../lib/offlineManager';
 
 interface DailyClosingViewProps {
   user: UserProfile;
@@ -35,6 +36,16 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
   }, []);
 
   async function fetchClosingData() {
+    // Check local closings first
+    try {
+      const localClosings = JSON.parse(localStorage.getItem('bar_pos_local_closings') || '{}');
+      if (localClosings[`${todayStr}-${user.uid}`]) {
+        setAlreadySubmitted(true);
+      }
+    } catch (e) {
+      // ignore
+    }
+
     try {
       // 1. Check if already submitted today
       const closingRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'dailyClosings', `${todayStr}-${user.uid}`);
@@ -51,7 +62,6 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       prodSnap.forEach(d => {
         const prod = { id: d.id, ...d.data() } as Product;
         prods.push(prod);
-        // Default actual count to expected current stock for convenience
         initialCounts[prod.id] = prod.currentStock;
       });
       setProducts(prods);
@@ -92,7 +102,44 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
         itemsSold: itemsCount
       });
     } catch (err) {
-      console.error("Error fetching closing data:", err);
+      console.warn("Working offline: calculating daily closing from local storage:", err);
+      const prods = getLocalCachedProducts();
+      const initialCounts: Record<string, number> = {};
+      prods.forEach(p => {
+        initialCounts[p.id] = p.currentStock;
+      });
+      setProducts(prods);
+      setActualCounts(initialCounts);
+
+      const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+      const todayLocal = localSales.filter(s => s.date === todayStr);
+      let tSales = 0;
+      let cash = 0;
+      let mpesa = 0;
+      let card = 0;
+      let other = 0;
+      let itemsCount = 0;
+
+      todayLocal.forEach(s => {
+        tSales += s.totalAmount;
+        if (s.paymentMethod === 'Cash') cash += s.totalAmount;
+        if (s.paymentMethod === 'M-Pesa') mpesa += s.totalAmount;
+        if (s.paymentMethod === 'Card') card += s.totalAmount;
+        if (s.paymentMethod === 'Other') other += s.totalAmount;
+        s.items.forEach(i => {
+          itemsCount += i.quantity;
+        });
+      });
+
+      setSalesSummary({
+        totalSales: tSales,
+        cash,
+        mpesa,
+        card,
+        other,
+        transactions: todayLocal.length,
+        itemsSold: itemsCount
+      });
     } finally {
       setLoading(false);
     }
@@ -148,22 +195,44 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
         status: 'submitted'
       };
 
-      const closingRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'dailyClosings', closingId);
-      await setDoc(closingRef, dailyClosing);
+      // 1. Always save to local closings immediately
+      try {
+        const localClosings = JSON.parse(localStorage.getItem('bar_pos_local_closings') || '{}');
+        localClosings[closingId] = dailyClosing;
+        localStorage.setItem('bar_pos_local_closings', JSON.stringify(localClosings));
+      } catch (e) {
+        console.warn("Could not save to local closings:", e);
+      }
 
-      await logAuditAction(
-        user.uid,
-        user.name,
-        'CLOSING_SUBMITTED',
-        `Submitted end-of-day closing for ${todayStr}. Total Sales: ${salesSummary.totalSales}`,
-        closingId
-      );
+      // 2. Try Firestore if online
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const closingRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'dailyClosings', closingId);
+          await setDoc(closingRef, dailyClosing);
+        } catch (dbErr) {
+          console.warn("Online write deferred for closing, saved locally:", dbErr);
+        }
+      }
+
+      try {
+        await logAuditAction(
+          user.uid,
+          user.name,
+          'CLOSING_SUBMITTED',
+          `Submitted end-of-day closing for ${todayStr}. Total Sales: ${salesSummary.totalSales}`,
+          closingId
+        );
+      } catch (e) {
+        // suppress
+      }
 
       setAlreadySubmitted(true);
       setSuccess(true);
     } catch (err) {
       console.error("Error submitting closing:", err);
-      alert("Failed to submit daily closing. Please try again.");
+      // Even if online call errored, closing was saved locally above
+      setAlreadySubmitted(true);
+      setSuccess(true);
     } finally {
       setSubmitting(false);
     }

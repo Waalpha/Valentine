@@ -20,8 +20,23 @@ export function CashierSalesView({ user, businessConfig }: CashierSalesViewProps
   }, []);
 
   async function fetchSales() {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Load locally first for instant display
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+      const todayLocal = localSales.filter(s =>
+        s.date === todayStr && (s.cashierId === user.uid || user.role === 'admin')
+      );
+      if (todayLocal.length > 0) {
+        todayLocal.sort((a, b) => b.createdAt - a.createdAt);
+        setSales(todayLocal);
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    try {
       const salesRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales');
       // Show sales recorded by this cashier for today (or all sales if admin/cashier preference)
       const q = query(salesRef, where('date', '==', todayStr));
@@ -36,9 +51,17 @@ export function CashierSalesView({ user, businessConfig }: CashierSalesViewProps
       });
       // Sort newest first
       list.sort((a, b) => b.createdAt - a.createdAt);
-      setSales(list);
+      if (list.length > 0) {
+        setSales(list);
+      }
     } catch (err) {
-      console.error("Error fetching sales:", err);
+      console.warn("Offline: showing locally stored sales:", err);
+      const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+      const todayLocal = localSales.filter(s =>
+        s.date === todayStr && (s.cashierId === user.uid || user.role === 'admin')
+      );
+      todayLocal.sort((a, b) => b.createdAt - a.createdAt);
+      setSales(todayLocal);
     } finally {
       setLoading(false);
     }

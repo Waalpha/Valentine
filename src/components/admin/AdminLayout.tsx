@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Package, Layers, Receipt, CalendarCheck, 
   Users, ShieldAlert, Settings, LogOut, Wine, TrendingUp 
 } from 'lucide-react';
+import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 
 interface AdminLayoutProps {
   user: UserProfile;
@@ -93,7 +94,14 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
 
       {/* Main Content Area */}
       <main className="flex-1 p-4 sm:p-8 overflow-y-auto">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="flex items-center justify-between bg-white p-3 px-4 rounded-2xl border border-gray-200 shadow-xs">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-500">System Mode</span>
+              <span className="text-xs font-bold text-gray-800">• POS Cloud & Offline Sync</span>
+            </div>
+            <OfflineStatusIndicator />
+          </div>
           {children}
         </div>
       </main>

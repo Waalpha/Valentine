@@ -88,6 +88,24 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
               <span>TOTAL:</span>
               <span>{formatCurrency(sale.totalAmount, businessConfig?.currency || 'KSh')}</span>
             </div>
+            {sale.amountTendered !== undefined && sale.amountTendered > 0 && (
+              <div className="flex justify-between text-xs text-gray-600 pt-1">
+                <span>Amount Paid:</span>
+                <span>{formatCurrency(sale.amountTendered, businessConfig?.currency || 'KSh')}</span>
+              </div>
+            )}
+            {sale.change !== undefined && sale.change > 0 && (
+              <div className="flex justify-between text-xs font-semibold text-emerald-700">
+                <span>Change Returned:</span>
+                <span>{formatCurrency(sale.change, businessConfig?.currency || 'KSh')}</span>
+              </div>
+            )}
+            {sale.referenceCode && (
+              <div className="flex justify-between text-xs text-gray-500 pt-1">
+                <span>Ref / M-Pesa Code:</span>
+                <span className="font-mono">{sale.referenceCode}</span>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-dashed border-gray-300 pt-4 text-center text-xs text-gray-500">

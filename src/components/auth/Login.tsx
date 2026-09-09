@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { auth, db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { Wine, Lock, Mail, AlertCircle, ShieldCheck, UserCheck } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { logAuditAction } from '../../lib/utils';
-import { initializeDatabase } from '../../lib/dbSeeder';
 
 interface LoginProps {
   onLoginSuccess?: (user: UserProfile) => void;
@@ -16,6 +14,62 @@ export function Login({ onLoginSuccess }: LoginProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [knownUsers, setKnownUsers] = useState<UserProfile[]>([]);
+
+  // Pre-load known users on mount so sign-in verification is instant
+  useEffect(() => {
+    // 1. Instantly read local cache
+    try {
+      const local = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+      if (Array.isArray(local) && local.length > 0) {
+        setKnownUsers(local.filter((u: UserProfile) => u.status !== 'deleted' && u.email !== 'cashier@barpos.com'));
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // 2. Fetch fresh staff users from Firestore in background (non-blocking)
+    getDocs(collection(db, 'users')).then((snap) => {
+      const list: UserProfile[] = [];
+      snap.forEach((d) => {
+        const u = { uid: d.id, ...d.data() } as UserProfile;
+        if (u.status !== 'deleted' && u.uid !== 'local-user-cashier' && u.email !== 'cashier@barpos.com') {
+          list.push(u);
+        }
+      });
+      if (list.length > 0) {
+        setKnownUsers(list);
+        try {
+          localStorage.setItem('bar_pos_local_users', JSON.stringify(list));
+        } catch (e) {
+          // ignore
+        }
+      }
+    }).catch((err) => {
+      console.warn('Background users fetch:', err);
+    });
+  }, []);
+
+  const completeLogin = (userProfile: UserProfile) => {
+    if (userProfile.status === 'disabled') {
+      setError('This account has been disabled by management.');
+      setLoading(false);
+      return;
+    }
+
+    // Save session immediately
+    localStorage.setItem('bar_pos_local_user', JSON.stringify(userProfile));
+
+    // Log audit in background without blocking UI
+    logAuditAction(userProfile.uid, userProfile.name, 'LOGIN', `Logged in as ${userProfile.role} (${userProfile.name})`).catch(() => {});
+
+    // Notify parent or reload instantly
+    if (onLoginSuccess) {
+      onLoginSuccess(userProfile);
+    } else {
+      window.location.reload();
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,172 +77,108 @@ export function Login({ onLoginSuccess }: LoginProps) {
     setLoading(true);
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
+
+    if (cleanEmail === 'cashier@barpos.com') {
+      setError('The default demo cashier has been removed. Please log in with your active cashier credentials (e.g. atieno@Valentine.com).');
+      setLoading(false);
+      return;
+    }
+
+    // 1. Instant match in preloaded users or local storage
+    const matchedInMemory = knownUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
+    if (matchedInMemory) {
+      completeLogin(matchedInMemory);
+      return;
+    }
 
     try {
-      // 1. Try Firebase Auth sign-in silently if available
-      let firebaseAuthSuccess = false;
-      let authenticatedUid: string | null = null;
-      try {
-        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-        firebaseAuthSuccess = true;
-        authenticatedUid = userCred.user.uid;
-        await initializeDatabase(userCred.user);
-      } catch (authErr: any) {
-        // Suppress expected auth/operation-not-allowed or user-not-found so it doesn't log console error
-        const isOpNotAllowed = authErr?.code === 'auth/operation-not-allowed' || authErr?.message?.includes('operation-not-allowed');
-        if (!isOpNotAllowed) {
-          console.info("Using database profile session authentication");
-        }
-      }
-
-      // 2. Check user profile in Firestore
-      let userProfile: UserProfile | null = null;
-      if (authenticatedUid) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', authenticatedUid));
-          if (userDoc.exists()) {
-            userProfile = userDoc.data() as UserProfile;
-          }
-        } catch (dbErr) {
-          console.warn("Could not read user profile doc:", dbErr);
-        }
-      }
-
-      // 3. If not found via UID, check by email in Firestore
-      if (!userProfile) {
-        try {
-          const usersSnap = await getDocs(collection(db, 'users'));
-          usersSnap.forEach((docSnap) => {
-            const u = docSnap.data() as any;
-            if (u.email && u.email.toLowerCase() === cleanEmail) {
-              userProfile = u as UserProfile;
-            }
-          });
-        } catch (err) {
-          // Fallback to local storage
-        }
-      }
-
-      // 4. If not found in Firestore, check local users
-      if (!userProfile) {
-        try {
-          const localUsers: any[] = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
-          const found = localUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
-          if (found) {
-            userProfile = found;
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      // 5. Fallback profile creation for known roles or custom credentials
-      if (!userProfile) {
-        const role = cleanEmail.includes('admin') ? 'admin' : 'cashier';
-        const name = role === 'admin' ? 'Master Admin' : 'Bar Cashier';
-        userProfile = {
-          uid: authenticatedUid || ('local-user-' + Date.now()),
-          email: cleanEmail,
-          name,
-          role,
-          businessId: DEFAULT_BUSINESS_ID,
-          status: 'active',
-          createdAt: new Date().toISOString()
-        };
-
-        try {
-          await setDoc(doc(db, 'users', userProfile.uid), userProfile);
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      if (userProfile.status === 'disabled') {
-        setError('This account has been disabled by management.');
-        setLoading(false);
+      const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+      const matchedLocal = localUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
+      if (matchedLocal) {
+        completeLogin(matchedLocal);
         return;
       }
-
-      // Save user session
-      localStorage.setItem('bar_pos_local_user', JSON.stringify(userProfile));
-      await logAuditAction(userProfile.uid, userProfile.name, 'LOGIN', `User logged in as ${userProfile.role}`);
-
-      if (onLoginSuccess) {
-        onLoginSuccess(userProfile);
-      } else {
-        window.location.reload();
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in. Please check credentials.');
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      // ignore
     }
+
+    // 2. Fast direct Firestore query with quick fallback
+    try {
+      const firestorePromise = (async () => {
+        const snap = await getDocs(collection(db, 'users'));
+        let found: UserProfile | null = null;
+        snap.forEach((d) => {
+          const u = { uid: d.id, ...d.data() } as UserProfile;
+          if (u.email && u.email.toLowerCase() === cleanEmail) {
+            found = u;
+          }
+        });
+        return found;
+      })();
+
+      // Fast timeout so user never waits more than 1.2s even on slow networks
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
+      const firestoreUser = await Promise.race([firestorePromise, timeoutPromise]);
+
+      if (firestoreUser) {
+        completeLogin(firestoreUser);
+        return;
+      }
+    } catch (err) {
+      console.warn('Direct user query error:', err);
+    }
+
+    // 3. Fallback profile creation for known email patterns or custom credentials
+    const isOwner = cleanEmail.includes('owner') || cleanEmail.includes('admin');
+    const role: 'admin' | 'cashier' = isOwner ? 'admin' : 'cashier';
+    const name = isOwner ? 'Club Owner' : 'Bar Cashier';
+
+    const fallbackProfile: UserProfile = {
+      uid: 'user-' + Date.now(),
+      email: cleanEmail,
+      name,
+      role,
+      businessId: DEFAULT_BUSINESS_ID,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+
+    // Save in background
+    setDoc(doc(db, 'users', fallbackProfile.uid), fallbackProfile).catch(() => {});
+
+    completeLogin(fallbackProfile);
   };
 
-  const handleDemoLogin = async (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
+  const handleDemoLogin = (demoRole: 'admin' | 'cashier') => {
     setError('');
     setLoading(true);
 
-    try {
-      const role = demoEmail.includes('admin') ? 'admin' : 'cashier';
-      const name = role === 'admin' ? 'Master Owner' : 'Main Cashier';
-
-      // Silent Firebase Auth attempt if enabled
-      try {
-        await signInWithEmailAndPassword(auth, demoEmail, demoPass);
-      } catch (authErr: any) {
-        // Do not throw or log operation-not-allowed
-      }
-
-      const profile: UserProfile = {
-        uid: 'local-user-' + role,
-        email: demoEmail,
-        name,
-        role,
+    if (demoRole === 'cashier') {
+      // Find active cashier (e.g. Atieno or MERCY)
+      const cashier = knownUsers.find((u) => u.role === 'cashier' && u.status === 'active') || {
+        uid: 'user-1788862620013',
+        name: 'Atieno',
+        email: 'atieno@Valentine.com',
+        role: 'cashier',
         businessId: DEFAULT_BUSINESS_ID,
         status: 'active',
         createdAt: new Date().toISOString()
       };
-
-      try {
-        await initializeDatabase({ uid: profile.uid, email: profile.email, displayName: profile.name });
-        await setDoc(doc(db, 'users', profile.uid), profile, { merge: true });
-      } catch (e) {
-        // ignore offline errors
-      }
-
-      localStorage.setItem('bar_pos_local_user', JSON.stringify(profile));
-      await logAuditAction(profile.uid, name, 'LOGIN', `Demo login as ${role}`);
-
-      if (onLoginSuccess) {
-        onLoginSuccess(profile);
-      } else {
-        window.location.reload();
-      }
-    } catch (err: any) {
-      const role = demoEmail.includes('admin') ? 'admin' : 'cashier';
-      const name = role === 'admin' ? 'Master Owner' : 'Main Cashier';
-      const fallbackUser: UserProfile = {
-        uid: 'local-user-' + role,
-        email: demoEmail,
-        name,
-        role,
-        businessId: DEFAULT_BUSINESS_ID,
-        status: 'active',
-        createdAt: new Date().toISOString()
-      };
-      localStorage.setItem('bar_pos_local_user', JSON.stringify(fallbackUser));
-      if (onLoginSuccess) {
-        onLoginSuccess(fallbackUser);
-      } else {
-        window.location.reload();
-      }
-    } finally {
-      setLoading(false);
+      completeLogin(cashier as UserProfile);
+      return;
     }
+
+    // Admin demo: find Cecilia Wangech or Master Owner
+    const admin = knownUsers.find((u) => u.role === 'admin' && u.status === 'active') || {
+      uid: 'local-user-admin',
+      name: 'Master Owner',
+      email: 'admin@barpos.com',
+      role: 'admin',
+      businessId: DEFAULT_BUSINESS_ID,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+    completeLogin(admin as UserProfile);
   };
 
   return (
@@ -227,7 +217,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@barpos.com or cashier@barpos.com"
+                  placeholder="Owner@Valentine.com or atieno@Valentine.com"
                   className="w-full rounded-xl border border-gray-300 bg-gray-50/50 py-3.5 pl-11 pr-4 text-sm text-gray-950 placeholder-gray-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20 transition-all"
                 />
               </div>
@@ -268,7 +258,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
             </p>
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => handleDemoLogin('admin@barpos.com', 'admin123456')}
+                type="button"
+                onClick={() => handleDemoLogin('admin')}
                 disabled={loading}
                 className="flex items-center justify-center space-x-2 rounded-xl border border-amber-200 bg-amber-50/60 py-3 px-3 text-xs font-semibold text-amber-800 hover:bg-amber-100/80 transition-all shadow-xs"
               >
@@ -276,7 +267,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
                 <span>Admin Owner</span>
               </button>
               <button
-                onClick={() => handleDemoLogin('cashier@barpos.com', 'cashier123456')}
+                type="button"
+                onClick={() => handleDemoLogin('cashier')}
                 disabled={loading}
                 className="flex items-center justify-center space-x-2 rounded-xl border border-emerald-200 bg-emerald-50/60 py-3 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100/80 transition-all shadow-xs"
               >

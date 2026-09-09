@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
 import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle } from 'lucide-react';
 
@@ -34,14 +34,19 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
       const snap = await getDocs(colRef);
       const list: UserProfile[] = [];
       snap.forEach(d => {
-        list.push({ ...d.data() } as UserProfile);
+        const u = { uid: d.id, ...d.data() } as UserProfile;
+        // Do not include deleted users or the obsolete local-user-cashier
+        if (u.status !== 'deleted' && u.uid !== 'local-user-cashier' && u.email !== 'cashier@barpos.com') {
+          list.push(u);
+        }
       });
       setUsersList(list);
     } catch (err) {
       console.warn("Using local fallback users due to permission error:", err);
       try {
-        const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[{"uid":"local-user-admin","email":"admin@barpos.com","name":"Master Owner","role":"admin","businessId":"default-business","status":"active","createdAt":""},{"uid":"local-user-cashier","email":"cashier@barpos.com","name":"Main Cashier","role":"cashier","businessId":"default-business","status":"active","createdAt":""}]');
-        setUsersList(localUsers);
+        const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+        const filtered = localUsers.filter(u => u.status !== 'deleted' && u.uid !== 'local-user-cashier' && u.email !== 'cashier@barpos.com');
+        setUsersList(filtered);
       } catch (e) {
         setUsersList([]);
       }
@@ -134,12 +139,20 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
 
     try {
       try {
-        await updateDoc(doc(db, 'users', targetUser.uid), { status: 'deleted' });
+        await deleteDoc(doc(db, 'users', targetUser.uid));
       } catch (e) {
-        const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
-        const filtered = localUsers.filter((u: UserProfile) => u.uid !== targetUser.uid);
-        localStorage.setItem('bar_pos_local_users', JSON.stringify(filtered));
+        console.warn('Could not delete user from Firestore directly:', e);
       }
+
+      // Always remove from local users cache
+      try {
+        const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+        const filtered = localUsers.filter((u: UserProfile) => u.uid !== targetUser.uid && u.email !== targetUser.email);
+        localStorage.setItem('bar_pos_local_users', JSON.stringify(filtered));
+      } catch (e) {
+        // ignore
+      }
+
       await logAuditAction(user.uid, user.name, 'USER_DELETED', `Deleted user ${targetUser.name} (${targetUser.email})`, targetUser.uid);
       setSuccess(`Successfully deleted user ${targetUser.name}`);
       await fetchUsers();
@@ -306,7 +319,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="cashier@barpos.com"
+                  placeholder="e.g. cashier@valentine.com"
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
                 />
               </div>

@@ -6,7 +6,7 @@ export interface UserProfile {
   name: string;
   role: UserRole;
   businessId: string;
-  status: 'active' | 'disabled';
+  status: 'active' | 'disabled' | 'deleted';
   createdAt: string;
 }
 
@@ -63,6 +63,9 @@ export interface Sale {
   items: SaleItem[];
   totalAmount: number;
   paymentMethod: PaymentMethod;
+  amountTendered?: number;
+  change?: number;
+  referenceCode?: string;
   cashierId: string;
   cashierName: string;
   businessDayId: string;

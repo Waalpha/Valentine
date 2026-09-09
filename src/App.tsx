@@ -38,26 +38,29 @@ export default function App() {
     if (localUserStr) {
       try {
         const localUser = JSON.parse(localUserStr);
-        setUserProfile(localUser);
-        setFirebaseUser({ uid: localUser.uid, email: localUser.email } as any);
-        // Fetch business config
-        getDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID)).then(bizSnap => {
-          if (bizSnap.exists()) {
-            setBusinessConfig(bizSnap.data() as BusinessConfig);
-          }
-        }).catch(() => {});
-        setLoading(false);
-        return;
+        if (localUser.uid === 'local-user-cashier' || localUser.email === 'cashier@barpos.com') {
+          localStorage.removeItem('bar_pos_local_user');
+        } else {
+          setUserProfile(localUser);
+          setFirebaseUser({ uid: localUser.uid, email: localUser.email } as any);
+          // Fetch business config
+          getDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID)).then(bizSnap => {
+            if (bizSnap.exists()) {
+              setBusinessConfig(bizSnap.data() as BusinessConfig);
+            }
+          }).catch(() => {});
+          setLoading(false);
+          return;
+        }
       } catch (e) {
         localStorage.removeItem('bar_pos_local_user');
       }
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
-      setLoading(true);
       if (fUser) {
         setFirebaseUser(fUser);
-        await initializeDatabase(fUser);
+        initializeDatabase(fUser).catch(() => {});
 
         // Fetch user profile
         try {
@@ -78,7 +81,7 @@ export default function App() {
               status: 'active',
               createdAt: new Date().toISOString()
             };
-            await setDoc(userDocRef, profile);
+            setDoc(userDocRef, profile).catch(() => {});
             setUserProfile(profile);
           }
 
@@ -118,6 +121,13 @@ export default function App() {
         onLoginSuccess={(user) => {
           setUserProfile(user);
           setFirebaseUser({ uid: user.uid, email: user.email } as any);
+          if (!businessConfig) {
+            getDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID)).then((bizSnap) => {
+              if (bizSnap.exists()) {
+                setBusinessConfig(bizSnap.data() as BusinessConfig);
+              }
+            }).catch(() => {});
+          }
         }}
       />
     );

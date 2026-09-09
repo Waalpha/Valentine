@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
 import { auth } from '../../lib/firebase';
 import { logAuditAction, formatCurrency } from '../../lib/utils';
-import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2 } from 'lucide-react';
+import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 
 interface CashierLayoutProps {
   user: UserProfile;
@@ -14,6 +15,32 @@ interface CashierLayoutProps {
 }
 
 export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, onLogout, children }: CashierLayoutProps) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen?.();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen?.();
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.warn('Fullscreen request failed or restricted:', err);
+      // Fallback: toggle expanded view state
+      setIsFullscreen(prev => !prev);
+    }
+  };
+
   const handleSignOut = async () => {
     await logAuditAction(user.uid, user.name, 'LOGOUT', 'Cashier logged out');
     await auth.signOut();
@@ -32,7 +59,7 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Top Header */}
       <header className="bg-slate-900 text-white shadow-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
               <Wine className="w-6 h-6 text-amber-400" />
@@ -45,11 +72,34 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <div className="hidden sm:block text-right">
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <OfflineStatusIndicator />
+
+            <div className="hidden sm:block text-right pr-1">
               <p className="text-xs text-slate-400">Active Currency</p>
               <p className="text-sm font-bold text-amber-400">{businessConfig?.currency || 'KSh'}</p>
             </div>
+
+            {/* Full Screen Toggle Button */}
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 px-3 py-2 rounded-xl text-sm font-semibold border border-slate-700 transition-all active:scale-95 shadow-xs"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              id="cashier-fullscreen-toggle"
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="w-4 h-4 text-amber-400" />
+                  <span className="hidden md:inline">Exit Fullscreen</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-4 h-4 text-amber-400" />
+                  <span className="hidden md:inline">Full Screen</span>
+                </>
+              )}
+            </button>
+
             <button
               onClick={handleSignOut}
               className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-sm font-medium border border-slate-700 transition-all active:scale-95"
@@ -62,7 +112,7 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
 
         {/* Navigation Tabs Bar */}
         <div className="bg-slate-800/90 border-t border-slate-700/60 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto flex space-x-1 sm:space-x-4 overflow-x-auto py-2 scrollbar-none">
+          <div className="w-full flex space-x-1 sm:space-x-4 overflow-x-auto py-2 scrollbar-none">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -89,8 +139,8 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      {/* Main Content Area - Full screen width responsive container */}
+      <main className="flex-1 w-full p-3 sm:p-5 lg:p-6">
         {children}
       </main>
     </div>

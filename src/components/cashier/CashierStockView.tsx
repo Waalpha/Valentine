@@ -3,6 +3,7 @@ import { UserProfile, BusinessConfig, Product, Sale } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Package, Search, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { getLocalCachedProducts, cacheLocalProducts } from '../../lib/offlineManager';
 
 interface CashierStockViewProps {
   user: UserProfile;
@@ -20,6 +21,26 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
   }, []);
 
   async function fetchStockData() {
+    // Load local stock first for instant display
+    const cachedProds = getLocalCachedProducts();
+    if (cachedProds.length > 0) {
+      setProducts(cachedProds);
+      // Calculate sold map from local sales
+      try {
+        const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+        const todayStr = new Date().toISOString().split('T')[0];
+        const sMap: Record<string, number> = {};
+        localSales.filter(s => s.date === todayStr).forEach(sale => {
+          sale.items.forEach(item => {
+            sMap[item.productId] = (sMap[item.productId] || 0) + item.quantity;
+          });
+        });
+        setSoldMap(sMap);
+      } catch (e) {
+        // ignore
+      }
+    }
+
     try {
       // 1. Fetch products
       const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
@@ -43,10 +64,28 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
         });
       });
 
-      setProducts(prods);
+      if (prods.length > 0) {
+        setProducts(prods);
+        cacheLocalProducts(prods);
+      }
       setSoldMap(sMap);
     } catch (err) {
-      console.error("Error fetching stock:", err);
+      console.warn("Working offline: showing local cached stock data:", err);
+      const localProds = getLocalCachedProducts();
+      setProducts(localProds);
+      try {
+        const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+        const todayStr = new Date().toISOString().split('T')[0];
+        const sMap: Record<string, number> = {};
+        localSales.filter(s => s.date === todayStr).forEach(sale => {
+          sale.items.forEach(item => {
+            sMap[item.productId] = (sMap[item.productId] || 0) + item.quantity;
+          });
+        });
+        setSoldMap(sMap);
+      } catch (e) {
+        // ignore
+      }
     } finally {
       setLoading(false);
     }
