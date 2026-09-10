@@ -97,6 +97,37 @@ export function clearSavedPrinter(): void {
   localStorage.removeItem('bar_pos_saved_printer');
 }
 
+export function downloadEscPosFile(sale: Sale, businessConfig?: BusinessConfig | null) {
+  const data = generateReceiptEscPos(sale, businessConfig);
+  const blob = new Blob([data], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `receipt-${sale.id.slice(-8)}.pos`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function copyReceiptText(sale: Sale, businessConfig?: BusinessConfig | null): string {
+  const businessName = businessConfig?.name || 'Club Valentine';
+  const currency = businessConfig?.currency || 'KSh';
+  let text = `*** ${businessName.toUpperCase()} ***\n`;
+  text += `Receipt: #${sale.id.slice(-8).toUpperCase()}\n`;
+  text += `Date: ${sale.date} ${sale.time}\n`;
+  text += `Cashier: ${sale.cashierName}\n`;
+  text += `Payment: ${sale.paymentMethod}\n`;
+  text += `--------------------------------\n`;
+  sale.items.forEach(i => {
+    text += `${i.productName} x${i.quantity} - ${currency} ${i.totalAmount}\n`;
+  });
+  text += `--------------------------------\n`;
+  text += `TOTAL: ${currency} ${sale.totalAmount}\n`;
+  text += `${businessConfig?.receiptFooter || 'Thank you!'}\n`;
+  return text;
+}
+
 export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfig | null): Uint8Array {
   const businessName = businessConfig?.name || 'Club Valentine';
   const address = businessConfig?.address || 'Nairobi CBD';

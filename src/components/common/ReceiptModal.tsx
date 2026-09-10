@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sale, BusinessConfig } from '../../types';
 import { formatCurrency } from '../../lib/utils';
-import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle } from 'lucide-react';
-import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, printToThermalPrinter, PrinterDevice } from '../../lib/thermalPrinter';
+import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle, Download, Copy, ExternalLink } from 'lucide-react';
+import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, printToThermalPrinter, downloadEscPosFile, copyReceiptText, PrinterDevice } from '../../lib/thermalPrinter';
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -31,7 +31,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
       setSavedPrinter(printer);
       setSuccessMsg(`Paired Bluetooth printer: ${printer.name}`);
     } catch (err: any) {
-      setError(err.message || 'Failed to pair Bluetooth printer');
+      setError(err.message || 'Failed to pair Bluetooth printer. Note: Browsers require direct user gesture & HTTPS.');
     }
   };
 
@@ -59,6 +59,17 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
     }
   };
 
+  const handleDownloadPos = () => {
+    downloadEscPosFile(sale, businessConfig);
+    setSuccessMsg('Downloaded .pos ESC/POS binary file for direct thermal printing apps (e.g. RawBT).');
+  };
+
+  const handleCopyText = () => {
+    const text = copyReceiptText(sale, businessConfig);
+    navigator.clipboard.writeText(text);
+    setSuccessMsg('Receipt text copied to clipboard!');
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
       <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl transition-all max-h-[90vh] overflow-y-auto">
@@ -79,7 +90,10 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         {error && (
           <div className="mt-4 flex items-center space-x-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">
             <AlertCircle className="h-5 w-5 shrink-0" />
-            <span>{error}</span>
+            <div className="space-y-1">
+              <p>{error}</p>
+              <p className="text-xs text-red-600 font-medium">Tip: If testing in an embedded preview, click <a href={window.location.href} target="_blank" rel="noreferrer" className="underline font-bold inline-flex items-center">Open in New Tab <ExternalLink className="w-3 h-3 ml-0.5" /></a> for full Web Bluetooth/USB hardware access.</p>
+            </div>
           </div>
         )}
 
@@ -172,9 +186,9 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         </div>
 
         {/* Printer Pairing & Printing Options */}
-        <div className="mb-4 rounded-xl bg-gray-50 p-4 border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Thermal Printer (BT / USB)</span>
+        <div className="mb-4 rounded-xl bg-gray-50 p-4 border border-gray-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Thermal Printer Options (BT / USB)</span>
             {savedPrinter ? (
               <span className="inline-flex items-center space-x-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
                 <span>Connected: {savedPrinter.name}</span>
@@ -183,7 +197,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
               <span className="text-xs text-amber-600">No printer paired</span>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handlePairBluetooth}
               className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
@@ -197,6 +211,22 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
             >
               <Usb className="h-4 w-4 text-purple-600" />
               <span>Pair USB</span>
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200">
+            <button
+              onClick={handleDownloadPos}
+              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
+            >
+              <Download className="h-4 w-4 text-emerald-600" />
+              <span>Download .POS File</span>
+            </button>
+            <button
+              onClick={handleCopyText}
+              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
+            >
+              <Copy className="h-4 w-4 text-amber-600" />
+              <span>Copy Receipt Text</span>
             </button>
           </div>
         </div>
@@ -224,7 +254,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
 
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all"
+            className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-all"
           >
             Done
           </button>
