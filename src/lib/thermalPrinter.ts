@@ -167,6 +167,30 @@ export async function connectUsbPrinter(): Promise<PrinterDevice> {
 }
 
 export async function connectBridgePrinter(bridgeUrl = 'http://localhost:9100/print'): Promise<PrinterDevice> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 second timeout for local bridge connection
+
+  try {
+    const res = await fetch(bridgeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'ping',
+        printerName: 'P58E Windows Bluetooth'
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      throw new Error(`Bridge returned HTTP status ${res.status}`);
+    }
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    throw new Error(`Unable to connect to Print Bridge at ${bridgeUrl}. Please verify your local Windows print agent is running. (${err.message})`);
+  }
+
   localStorage.setItem('bar_pos_print_bridge_url', bridgeUrl);
   const printerInfo: PrinterDevice = {
     name: 'P58E Windows Bluetooth (Print Bridge)',
