@@ -118,37 +118,6 @@ export function clearSavedPrinter(): void {
   localStorage.removeItem('bar_pos_saved_printer');
 }
 
-export function downloadEscPosFile(sale: Sale, businessConfig?: BusinessConfig | null) {
-  const data = generateReceiptEscPos(sale, businessConfig);
-  const blob = new Blob([data], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `receipt-${sale.id.slice(-8)}.pos`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-export function copyReceiptText(sale: Sale, businessConfig?: BusinessConfig | null): string {
-  const businessName = businessConfig?.name || 'Club Valentine';
-  const currency = businessConfig?.currency || 'KSh';
-  let text = `*** ${businessName.toUpperCase()} ***\n`;
-  text += `Receipt: #${sale.id.slice(-8).toUpperCase()}\n`;
-  text += `Date: ${sale.date} ${sale.time}\n`;
-  text += `Cashier: ${sale.cashierName}\n`;
-  text += `Payment: ${sale.paymentMethod}\n`;
-  text += `--------------------------------\n`;
-  sale.items.forEach(i => {
-    text += `${i.productName} x${i.quantity} - ${currency} ${i.totalAmount}\n`;
-  });
-  text += `--------------------------------\n`;
-  text += `TOTAL: ${currency} ${sale.totalAmount}\n`;
-  text += `${businessConfig?.receiptFooter || 'Thank you!'}\n`;
-  return text;
-}
-
 export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfig | null): Uint8Array {
   const businessName = businessConfig?.name || 'Club Valentine';
   const address = businessConfig?.address || 'Nairobi CBD';
@@ -213,58 +182,10 @@ export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfi
 
 export async function printToThermalPrinter(sale: Sale, businessConfig?: BusinessConfig | null): Promise<boolean> {
   const printer = getSavedPrinter();
-  if (!printer) {
-    throw new Error('No thermal printer paired. Please pair a Bluetooth or USB printer in Settings or the print dialog.');
-  }
-
   const escPosData = generateReceiptEscPos(sale, businessConfig);
   const nav = navigator as any;
 
-  if (printer.type === 'bluetooth') {
-    if (!nav.bluetooth) throw new Error('Web Bluetooth not supported.');
-    const device = await nav.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [
-        '000018f0-0000-1000-8000-00805f9b34fb',
-        '00001101-0000-1000-8000-00805f9b34fb',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-      ]
-    });
-    const server = await device.gatt?.connect();
-    if (!server) throw new Error('Could not connect to Bluetooth printer GATT server.');
-
-    let characteristic: any = null;
-    const services = await server.getPrimaryServices();
-    for (const service of services) {
-      try {
-        const characteristics = await service.getCharacteristics();
-        for (const c of characteristics) {
-          if (c.properties.write || c.properties.writeWithoutResponse) {
-            characteristic = c;
-            break;
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
-      if (characteristic) break;
-    }
-
-    if (!characteristic) {
-      throw new Error('Could not find writable characteristic on Bluetooth printer.');
-    }
-
-    const chunkSize = 512;
-    for (let i = 0; i < escPosData.length; i += chunkSize) {
-      const chunk = escPosData.slice(i, i + chunkSize);
-      if (characteristic.properties.writeWithoutResponse) {
-        await characteristic.writeValueWithoutResponse(chunk);
-      } else {
-        await characteristic.writeValue(chunk);
-      }
-    }
-    return true;
-  } else if (printer.type === 'usb') {
+  if (printer && printer.type === 'usb') {
     if (!nav.usb) throw new Error('Web USB not supported.');
     const devices = await nav.usb.getDevices();
     let device = devices.find((d: any) => String(d.serialNumber || d.vendorId) === printer.id) || devices[0];
@@ -298,5 +219,88 @@ export async function printToThermalPrinter(sale: Sale, businessConfig?: Busines
     return true;
   }
 
-  throw new Error('Unknown printer type');
+  // Bluetooth printing flow
+  if (!nav.bluetooth) throw new Error('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or an Android browser.');
+
+  let device: any = null;
+  if (printer && printer.type === 'bluetooth' && typeof nav.bluetooth.getDevices === 'function') {
+    try {
+      const allowedDevices = await nav.bluetooth.getDevices();
+      device = allowedDevices.find((d: any) => d.id === printer.id || d.name === printer.name);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  if (!device) {
+    try {
+      device = await nav.bluetooth.requestDevice({
+        filters: [
+          { namePrefix: 'P58' },
+          { namePrefix: 'POS' },
+          { namePrefix: 'MPT' },
+          { namePrefix: 'Printer' },
+          { namePrefix: 'BT' }
+        ],
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          '00001101-0000-1000-8000-00805f9b34fb',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        ]
+      });
+    } catch (filterErr) {
+      device = await nav.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          '00001101-0000-1000-8000-00805f9b34fb',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        ]
+      });
+    }
+
+    if (device) {
+      const printerInfo: PrinterDevice = {
+        name: device.name || 'P58 Thermal Printer',
+        type: 'bluetooth',
+        id: device.id
+      };
+      localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printerInfo));
+    }
+  }
+
+  const server = await device.gatt?.connect();
+  if (!server) throw new Error('Could not connect to Bluetooth printer GATT server.');
+
+  let characteristic: any = null;
+  const services = await server.getPrimaryServices();
+  for (const service of services) {
+    try {
+      const characteristics = await service.getCharacteristics();
+      for (const c of characteristics) {
+        if (c.properties.write || c.properties.writeWithoutResponse) {
+          characteristic = c;
+          break;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (characteristic) break;
+  }
+
+  if (!characteristic) {
+    throw new Error('Could not find writable characteristic on Bluetooth printer.');
+  }
+
+  const chunkSize = 512;
+  for (let i = 0; i < escPosData.length; i += chunkSize) {
+    const chunk = escPosData.slice(i, i + chunkSize);
+    if (characteristic.properties.writeWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(chunk);
+    } else {
+      await characteristic.writeValue(chunk);
+    }
+  }
+  return true;
 }

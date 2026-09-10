@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sale, BusinessConfig } from '../../types';
 import { formatCurrency } from '../../lib/utils';
-import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle, Download, Copy, ExternalLink } from 'lucide-react';
-import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, printToThermalPrinter, downloadEscPosFile, copyReceiptText, PrinterDevice } from '../../lib/thermalPrinter';
+import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle, ExternalLink } from 'lucide-react';
+import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, printToThermalPrinter, PrinterDevice } from '../../lib/thermalPrinter';
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -20,18 +20,14 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
     setSavedPrinter(getSavedPrinter());
   }, []);
 
-  const handleBrowserPrint = () => {
-    window.print();
-  };
-
   const handlePairBluetooth = async () => {
     setError('');
     try {
       const printer = await connectBluetoothPrinter();
       setSavedPrinter(printer);
-      setSuccessMsg(`Paired Bluetooth printer: ${printer.name}`);
+      setSuccessMsg(`Paired P58 Bluetooth printer: ${printer.name}`);
     } catch (err: any) {
-      setError(err.message || 'Failed to pair Bluetooth printer. Note: Browsers require direct user gesture & HTTPS.');
+      setError(err.message || 'Failed to pair P58 Bluetooth printer. Note: Browsers require direct user gesture & HTTPS.');
     }
   };
 
@@ -40,7 +36,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
     try {
       const printer = await connectUsbPrinter();
       setSavedPrinter(printer);
-      setSuccessMsg(`Paired USB printer: ${printer.name}`);
+      setSuccessMsg(`Paired USB thermal printer: ${printer.name}`);
     } catch (err: any) {
       setError(err.message || 'Failed to pair USB printer');
     }
@@ -51,23 +47,12 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
     setPrinting(true);
     try {
       await printToThermalPrinter(sale, businessConfig);
-      setSuccessMsg('Receipt sent to thermal printer successfully!');
+      setSuccessMsg('Receipt sent to P58 thermal printer successfully!');
     } catch (err: any) {
       setError(err.message || 'Thermal printing failed');
     } finally {
       setPrinting(false);
     }
-  };
-
-  const handleDownloadPos = () => {
-    downloadEscPosFile(sale, businessConfig);
-    setSuccessMsg('Downloaded .pos ESC/POS binary file for direct thermal printing apps (e.g. RawBT).');
-  };
-
-  const handleCopyText = () => {
-    const text = copyReceiptText(sale, businessConfig);
-    navigator.clipboard.writeText(text);
-    setSuccessMsg('Receipt text copied to clipboard!');
   };
 
   return (
@@ -188,7 +173,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         {/* Printer Pairing & Printing Options */}
         <div className="mb-4 rounded-xl bg-gray-50 p-4 border border-gray-200 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Thermal Printer Options (BT / USB)</span>
+            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">P58 Thermal Printer</span>
             {savedPrinter ? (
               <span className="inline-flex items-center space-x-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
                 <span>Connected: {savedPrinter.name}</span>
@@ -210,51 +195,25 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
               className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
             >
               <Usb className="h-4 w-4 text-purple-600" />
-              <span>Pair USB</span>
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200">
-            <button
-              onClick={handleDownloadPos}
-              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
-            >
-              <Download className="h-4 w-4 text-emerald-600" />
-              <span>Download .POS File</span>
-            </button>
-            <button
-              onClick={handleCopyText}
-              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
-            >
-              <Copy className="h-4 w-4 text-amber-600" />
-              <span>Copy Receipt Text</span>
+              <span>Pair USB Printer</span>
             </button>
           </div>
         </div>
 
         {/* Modal Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-2 pt-2">
-          {savedPrinter ? (
-            <button
-              onClick={handleThermalPrint}
-              disabled={printing}
-              className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-emerald-600 py-3 text-sm font-medium text-white shadow-md hover:bg-emerald-700 transition-all disabled:opacity-50"
-            >
-              <Printer className="h-4 w-4" />
-              <span>{printing ? 'Printing...' : `Print via Thermal (${savedPrinter.type.toUpperCase()})`}</span>
-            </button>
-          ) : (
-            <button
-              onClick={handleBrowserPrint}
-              className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-gray-900 py-3 text-sm font-medium text-white shadow-md hover:bg-gray-800 transition-all"
-            >
-              <Printer className="h-4 w-4" />
-              <span>Standard Print / PDF</span>
-            </button>
-          )}
+          <button
+            onClick={handleThermalPrint}
+            disabled={printing}
+            className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-emerald-600 py-3 text-sm font-medium text-white shadow-md hover:bg-emerald-700 transition-all disabled:opacity-50"
+          >
+            <Printer className="h-4 w-4" />
+            <span>{printing ? 'Connecting & Printing...' : (savedPrinter ? `Print via P58 Thermal (${savedPrinter.type.toUpperCase()})` : 'Print via P58 Thermal (Connect & Print)')}</span>
+          </button>
 
           <button
             onClick={onClose}
-            className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-all"
+            className="rounded-xl border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-all"
           >
             Done
           </button>
