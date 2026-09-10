@@ -1,6 +1,19 @@
 @import "tailwindcss";
 
 @media print {
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+  
+  body, html {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 58mm !important;
+    max-width: 58mm !important;
+    background: white !important;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -19,5 +32,9 @@
     color: black !important;
     box-shadow: none !important;
     border: none !important;
+    page-break-after: avoid !important;
+    page-break-before: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
+
