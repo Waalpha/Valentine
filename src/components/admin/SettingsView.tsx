@@ -5,7 +5,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
 import { Settings, Save, CheckCircle2, AlertCircle, Building2, Trash2, AlertTriangle, RotateCcw, Printer, Bluetooth, Usb } from 'lucide-react';
 import { clearAllPaymentRecords } from '../../lib/offlineManager';
-import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, clearSavedPrinter, PrinterDevice } from '../../lib/thermalPrinter';
+import { getSavedPrinter, connectUsbPrinter, connectBridgePrinter, clearSavedPrinter, getPrinterDiagnostics, PrinterDevice, PrinterDiagnosticInfo } from '../../lib/thermalPrinter';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -34,6 +34,8 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
   // Printer State
   const [savedPrinter, setSavedPrinter] = useState<PrinterDevice | null>(null);
   const [printerMsg, setPrinterMsg] = useState('');
+  const [diagnostics, setDiagnostics] = useState<PrinterDiagnosticInfo>(getPrinterDiagnostics());
+  const [bridgeUrlInput, setBridgeUrlInput] = useState(localStorage.getItem('bar_pos_print_bridge_url') || 'http://localhost:9100/print');
 
   // Clear Payment / Sales Records State
   const [showClearModal, setShowClearModal] = useState(false);
@@ -46,6 +48,10 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
       setFormData(businessConfig);
     }
     setSavedPrinter(getSavedPrinter());
+    const interval = setInterval(() => {
+      setDiagnostics(getPrinterDiagnostics());
+    }, 1000);
+    return () => clearInterval(interval);
   }, [businessConfig]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -68,15 +74,15 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     }
   };
 
-  const handlePairBluetooth = async () => {
+  const handleConnectBridge = async () => {
     setError('');
     setPrinterMsg('');
     try {
-      const printer = await connectBluetoothPrinter();
+      const printer = await connectBridgePrinter(bridgeUrlInput);
       setSavedPrinter(printer);
-      setPrinterMsg(`Successfully paired Bluetooth printer: ${printer.name}`);
+      setPrinterMsg('Connected to Windows Print Bridge successfully!');
     } catch (err: any) {
-      setError(err.message || 'Failed to pair Bluetooth printer');
+      setError(err.message || 'Failed to connect Print Bridge');
     }
   };
 
@@ -126,64 +132,108 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
         </div>
       )}
 
-      {/* Thermal Printer Configuration Card */}
-      <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xs space-y-4">
+      {/* Thermal Printer Configuration & Diagnostics Card */}
+      <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xs space-y-6">
         <div className="flex items-center justify-between border-b border-gray-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="p-3 bg-amber-50 rounded-2xl text-amber-700">
               <Printer className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">P58 & Thermal Receipt Printers (BT / USB)</h3>
-              <p className="text-sm text-gray-500">Pair P58 (58mm) and other ESC/POS thermal receipt printers for direct POS printing</p>
+              <h3 className="text-lg font-bold text-gray-900">Thermal Receipt Printer Architecture & Diagnostics</h3>
+              <p className="text-sm text-gray-500">P58E Windows Bluetooth uses Classic SPP. Configure via USB or Local Print Bridge.</p>
             </div>
           </div>
           {savedPrinter ? (
             <span className="inline-flex items-center space-x-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
               <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-              <span>Connected: {savedPrinter.name}</span>
+              <span>Active: {savedPrinter.name}</span>
             </span>
           ) : (
             <span className="inline-flex items-center space-x-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-              <span>No Printer Paired</span>
+              <span>No Printer Configured</span>
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-          <button
-            type="button"
-            onClick={handlePairBluetooth}
-            className="flex items-center justify-center space-x-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 px-4 py-3.5 text-sm font-semibold text-gray-700 shadow-xs transition-all"
-          >
-            <Bluetooth className="w-5 h-5 text-blue-600" />
-            <span>Pair P58 Bluetooth Printer</span>
-          </button>
+        {/* Diagnostic Dashboard (Requirement 11) */}
+        <div className="rounded-2xl bg-gray-900 text-gray-100 p-5 space-y-3 font-mono text-xs">
+          <div className="text-sm font-bold text-emerald-400 border-b border-gray-800 pb-2 flex items-center justify-between">
+            <span>Bluetooth & Printer Diagnostic Screen</span>
+            <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-800">Live Diagnostics</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-300">
+            <div><span className="text-gray-500">Bluetooth Available:</span> {diagnostics.bluetoothAvailable ? 'Yes (Web API)' : 'No'}</div>
+            <div><span className="text-gray-500">Printer Detected:</span> <span className="text-white">{diagnostics.printerDetected}</span></div>
+            <div className="sm:col-span-2"><span className="text-gray-500">Bluetooth Protocol:</span> <span className="text-amber-300">{diagnostics.bluetoothProtocol}</span></div>
+            <div className="sm:col-span-2"><span className="text-gray-500">Compatibility Note:</span> <span className="text-blue-300">{diagnostics.compatibilityNote}</span></div>
+            <div><span className="text-gray-500">Connection Status:</span> <span className="text-emerald-400">{diagnostics.connectionStatus}</span></div>
+            <div><span className="text-gray-500">Printing Status:</span> <span className="text-cyan-300">{diagnostics.printingStatus}</span></div>
+            {diagnostics.lastError && (
+              <div className="sm:col-span-2 text-red-400 font-bold bg-red-950/50 p-2 rounded border border-red-800">
+                Exact Error: {diagnostics.lastError}
+              </div>
+            )}
+          </div>
+        </div>
 
-          <button
-            type="button"
-            onClick={handlePairUsb}
-            className="flex items-center justify-center space-x-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 px-4 py-3.5 text-sm font-semibold text-gray-700 shadow-xs transition-all"
-          >
-            <Usb className="w-5 h-5 text-purple-600" />
-            <span>Pair USB Printer</span>
-          </button>
+        {/* Connection Options (Requirement 9) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+          {/* USB Printer */}
+          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50">
+            <div className="flex items-center space-x-2 text-purple-700 font-bold text-sm">
+              <Usb className="w-5 h-5" />
+              <span>1. USB Thermal Printer</span>
+            </div>
+            <p className="text-xs text-gray-600">Connect P58 or other thermal printers directly via USB cable to your computer or Android tablet.</p>
+            <button
+              type="button"
+              onClick={handlePairUsb}
+              className="w-full flex items-center justify-center space-x-2 rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all"
+            >
+              <span>Pair / Connect USB Printer</span>
+            </button>
+          </div>
 
-          {savedPrinter ? (
+          {/* Bluetooth Printer via Print Bridge */}
+          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50">
+            <div className="flex items-center space-x-2 text-blue-700 font-bold text-sm">
+              <Bluetooth className="w-5 h-5" />
+              <span>2. Bluetooth Printer via Windows Print Bridge</span>
+            </div>
+            <p className="text-xs text-gray-600">For Windows Bluetooth Classic SPP printers (P58E). Connects via local bridge agent.</p>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={bridgeUrlInput}
+                onChange={(e) => setBridgeUrlInput(e.target.value)}
+                placeholder="http://localhost:9100/print"
+                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleConnectBridge}
+                className="w-full flex items-center justify-center space-x-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all"
+              >
+                <span>Connect Print Bridge</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {savedPrinter && (
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-600 font-medium">Active Configuration: <strong>{savedPrinter.name}</strong> ({savedPrinter.type})</span>
             <button
               type="button"
               onClick={handleDisconnectPrinter}
-              className="flex items-center justify-center space-x-2 rounded-2xl border border-red-200 bg-red-50 hover:bg-red-100 px-4 py-3.5 text-sm font-semibold text-red-700 transition-all"
+              className="flex items-center space-x-1.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 px-3.5 py-2 text-xs font-semibold text-red-700 transition-all"
             >
-              <Trash2 className="w-5 h-5" />
-              <span>Disconnect Printer</span>
+              <Trash2 className="w-4 h-4" />
+              <span>Disconnect / Remove Printer</span>
             </button>
-          ) : (
-            <div className="flex items-center justify-center text-xs text-gray-400 italic px-2">
-              Supports standard ESC/POS Bluetooth & USB thermal printers on Chrome/Edge/Android.
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xs space-y-6">

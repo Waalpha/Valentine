@@ -3,8 +3,38 @@ import { formatCurrency } from './utils';
 
 export interface PrinterDevice {
   name: string;
-  type: 'bluetooth' | 'usb';
+  type: 'bluetooth_bridge' | 'usb' | 'bluetooth_ble';
   id?: string;
+  bridgeUrl?: string;
+}
+
+export interface PrinterDiagnosticInfo {
+  bluetoothAvailable: boolean;
+  bluetoothProtocol: string;
+  compatibilityNote: string;
+  printerDetected: string;
+  connectionStatus: string;
+  printingStatus: string;
+  lastError: string;
+  bridgeUrl: string;
+}
+
+let lastErrorMsg = '';
+let printingStatusState = 'Idle';
+
+export function getPrinterDiagnostics(): PrinterDiagnosticInfo {
+  const nav = navigator as any;
+  const saved = getSavedPrinter();
+  return {
+    bluetoothAvailable: !!nav.bluetooth,
+    bluetoothProtocol: 'Bluetooth Classic (SPP) / Virtual COM Port (Incompatible with Web Bluetooth BLE/GATT)',
+    compatibilityNote: 'P58E paired in Windows uses Bluetooth Classic SPP, which Web Bluetooth cannot access. Use USB or the Local Print Bridge.',
+    printerDetected: saved ? saved.name : 'None configured',
+    connectionStatus: saved ? `Configured for ${saved.type}` : 'Disconnected',
+    printingStatus: printingStatusState,
+    lastError: lastErrorMsg,
+    bridgeUrl: localStorage.getItem('bar_pos_print_bridge_url') || 'http://localhost:9100/print'
+  };
 }
 
 // Helper to encode text to Uint8Array (CP437 or ASCII friendly)
@@ -22,101 +52,6 @@ const ALIGN_RIGHT = ESC + '\x61\x02';
 const BOLD_ON = ESC + '\x45\x01';
 const BOLD_OFF = ESC + '\x45\x00';
 const CUT_PAPER = GS + '\x56\x41\x00';
-
-export async function connectP58BluetoothPrinter(): Promise<PrinterDevice> {
-  const nav = navigator as any;
-  if (!nav.bluetooth) {
-    throw new Error('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or an Android browser.');
-  }
-
-  try {
-    let device;
-    try {
-      device = await nav.bluetooth.requestDevice({
-        filters: [
-          { namePrefix: 'P58' },
-          { namePrefix: 'POS' },
-          { namePrefix: 'MPT' },
-          { namePrefix: 'Printer' },
-          { namePrefix: 'BT' }
-        ],
-        optionalServices: [
-          '000018f0-0000-1000-8000-00805f9b34fb',
-          '00001101-0000-1000-8000-00805f9b34fb',
-          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-        ]
-      });
-    } catch (filterErr) {
-      device = await nav.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [
-          '000018f0-0000-1000-8000-00805f9b34fb',
-          '00001101-0000-1000-8000-00805f9b34fb',
-          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-        ]
-      });
-    }
-
-    const printerInfo: PrinterDevice = {
-      name: device.name || 'P58 Thermal Printer',
-      type: 'bluetooth',
-      id: device.id
-    };
-
-    localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printerInfo));
-    return printerInfo;
-  } catch (err: any) {
-    throw new Error(err.message || 'Failed to connect P58 Bluetooth printer');
-  }
-}
-
-export async function connectBluetoothPrinter(): Promise<PrinterDevice> {
-  return connectP58BluetoothPrinter();
-}
-
-export async function connectUsbPrinter(): Promise<PrinterDevice> {
-  const nav = navigator as any;
-  if (!nav.usb) {
-    throw new Error('Web USB is not supported in this browser.');
-  }
-
-  try {
-    const device = await nav.usb.requestDevice({ filters: [] });
-    await device.open();
-    if (device.configuration === null && device.configurations.length > 0) {
-      await device.selectConfiguration(device.configurations[0].configurationValue);
-    }
-    try {
-      await device.claimInterface(0);
-    } catch (e) {
-      // Ignore if already claimed
-    }
-
-    const printerInfo: PrinterDevice = {
-      name: device.productName || 'USB Thermal Printer',
-      type: 'usb',
-      id: String(device.serialNumber || device.vendorId)
-    };
-
-    localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printerInfo));
-    return printerInfo;
-  } catch (err: any) {
-    throw new Error(err.message || 'Failed to connect USB printer');
-  }
-}
-
-export function getSavedPrinter(): PrinterDevice | null {
-  try {
-    const saved = localStorage.getItem('bar_pos_saved_printer');
-    return saved ? JSON.parse(saved) : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-export function clearSavedPrinter(): void {
-  localStorage.removeItem('bar_pos_saved_printer');
-}
 
 export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfig | null): Uint8Array {
   const businessName = businessConfig?.name || 'Club Valentine';
@@ -180,13 +115,85 @@ export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfi
   return encodeText(raw);
 }
 
+export function getSavedPrinter(): PrinterDevice | null {
+  try {
+    const saved = localStorage.getItem('bar_pos_saved_printer');
+    return saved ? JSON.parse(saved) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function savePrinter(printer: PrinterDevice): void {
+  localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printer));
+}
+
+export function clearSavedPrinter(): void {
+  localStorage.removeItem('bar_pos_saved_printer');
+}
+
+export async function connectUsbPrinter(): Promise<PrinterDevice> {
+  const nav = navigator as any;
+  if (!nav.usb) {
+    throw new Error('Web USB is not supported in this browser.');
+  }
+
+  try {
+    const device = await nav.usb.requestDevice({ filters: [] });
+    if (!device.opened) {
+      await device.open();
+    }
+    if (device.configuration === null && device.configurations.length > 0) {
+      await device.selectConfiguration(device.configurations[0].configurationValue);
+    }
+    try {
+      await device.claimInterface(0);
+    } catch (e) {
+      // ignore
+    }
+
+    const printerInfo: PrinterDevice = {
+      name: device.productName || 'USB Thermal Printer',
+      type: 'usb',
+      id: String(device.serialNumber || device.vendorId)
+    };
+
+    savePrinter(printerInfo);
+    return printerInfo;
+  } catch (err: any) {
+    lastErrorMsg = err.message || 'Failed to connect USB printer';
+    throw new Error(lastErrorMsg);
+  }
+}
+
+export async function connectBridgePrinter(bridgeUrl = 'http://localhost:9100/print'): Promise<PrinterDevice> {
+  localStorage.setItem('bar_pos_print_bridge_url', bridgeUrl);
+  const printerInfo: PrinterDevice = {
+    name: 'P58E Windows Bluetooth (Print Bridge)',
+    type: 'bluetooth_bridge',
+    bridgeUrl
+  };
+  savePrinter(printerInfo);
+  return printerInfo;
+}
+
 export async function printToThermalPrinter(sale: Sale, businessConfig?: BusinessConfig | null): Promise<boolean> {
+  printingStatusState = 'Preparing receipt...';
+  lastErrorMsg = '';
+
   const printer = getSavedPrinter();
+  if (!printer) {
+    lastErrorMsg = 'No printer configured. Please configure USB or Print Bridge in Settings.';
+    printingStatusState = 'Error: No printer configured';
+    throw new Error(lastErrorMsg);
+  }
+
   const escPosData = generateReceiptEscPos(sale, businessConfig);
   const nav = navigator as any;
 
-  if (printer && printer.type === 'usb') {
+  if (printer.type === 'usb') {
     if (!nav.usb) throw new Error('Web USB not supported.');
+    printingStatusState = 'Connecting to USB printer...';
     const devices = await nav.usb.getDevices();
     let device = devices.find((d: any) => String(d.serialNumber || d.vendorId) === printer.id) || devices[0];
     if (!device) {
@@ -215,92 +222,43 @@ export async function printToThermalPrinter(sale: Sale, businessConfig?: Busines
       }
     }
 
+    printingStatusState = 'Sending data to USB printer...';
     await device.transferOut(endpointOut, escPosData);
+    printingStatusState = 'Printed successfully via USB';
     return true;
   }
 
-  // Bluetooth printing flow
-  if (!nav.bluetooth) throw new Error('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or an Android browser.');
-
-  let device: any = null;
-  if (printer && printer.type === 'bluetooth' && typeof nav.bluetooth.getDevices === 'function') {
+  if (printer.type === 'bluetooth_bridge') {
+    printingStatusState = 'Sending to Windows Print Bridge...';
+    const bridgeUrl = printer.bridgeUrl || localStorage.getItem('bar_pos_print_bridge_url') || 'http://localhost:9100/print';
+    
     try {
-      const allowedDevices = await nav.bluetooth.getDevices();
-      device = allowedDevices.find((d: any) => d.id === printer.id || d.name === printer.name);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  if (!device) {
-    try {
-      device = await nav.bluetooth.requestDevice({
-        filters: [
-          { namePrefix: 'P58' },
-          { namePrefix: 'POS' },
-          { namePrefix: 'MPT' },
-          { namePrefix: 'Printer' },
-          { namePrefix: 'BT' }
-        ],
-        optionalServices: [
-          '000018f0-0000-1000-8000-00805f9b34fb',
-          '00001101-0000-1000-8000-00805f9b34fb',
-          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-        ]
+      const base64Data = btoa(String.fromCharCode.apply(null, Array.from(escPosData)));
+      
+      const response = await fetch(bridgeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          printerName: printer.name,
+          dataBase64: base64Data,
+          rawBytes: Array.from(escPosData)
+        })
       });
-    } catch (filterErr) {
-      device = await nav.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [
-          '000018f0-0000-1000-8000-00805f9b34fb',
-          '00001101-0000-1000-8000-00805f9b34fb',
-          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-        ]
-      });
-    }
 
-    if (device) {
-      const printerInfo: PrinterDevice = {
-        name: device.name || 'P58 Thermal Printer',
-        type: 'bluetooth',
-        id: device.id
-      };
-      localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printerInfo));
-    }
-  }
-
-  const server = await device.gatt?.connect();
-  if (!server) throw new Error('Could not connect to Bluetooth printer GATT server.');
-
-  let characteristic: any = null;
-  const services = await server.getPrimaryServices();
-  for (const service of services) {
-    try {
-      const characteristics = await service.getCharacteristics();
-      for (const c of characteristics) {
-        if (c.properties.write || c.properties.writeWithoutResponse) {
-          characteristic = c;
-          break;
-        }
+      if (!response.ok) {
+        throw new Error(`Print Bridge responded with status ${response.status}: ${response.statusText}`);
       }
-    } catch (e) {
-      // ignore
-    }
-    if (characteristic) break;
-  }
 
-  if (!characteristic) {
-    throw new Error('Could not find writable characteristic on Bluetooth printer.');
-  }
-
-  const chunkSize = 512;
-  for (let i = 0; i < escPosData.length; i += chunkSize) {
-    const chunk = escPosData.slice(i, i + chunkSize);
-    if (characteristic.properties.writeWithoutResponse) {
-      await characteristic.writeValueWithoutResponse(chunk);
-    } else {
-      await characteristic.writeValue(chunk);
+      printingStatusState = 'Printed successfully via Windows Print Bridge';
+      return true;
+    } catch (err: any) {
+      lastErrorMsg = `Print Bridge connection failed (${bridgeUrl}): ${err.message}. Ensure your local Windows print agent is running.`;
+      printingStatusState = 'Error: Print Bridge failed';
+      throw new Error(lastErrorMsg);
     }
   }
-  return true;
+
+  throw new Error('Unsupported printer configuration type.');
 }
