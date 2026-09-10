@@ -3,8 +3,9 @@ import { UserProfile, BusinessConfig, Sale, Product } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
-import { Receipt, Search, Download, Calendar, Filter, DollarSign, ShoppingBag, RotateCcw, Trash2 } from 'lucide-react';
+import { Receipt, Search, Download, Calendar, Filter, DollarSign, ShoppingBag, RotateCcw, Trash2, Printer } from 'lucide-react';
 import { clearAllPaymentRecords } from '../../lib/offlineManager';
+import { ReceiptModal } from '../common/ReceiptModal';
 
 interface SalesReportsViewProps {
   user: UserProfile;
@@ -15,6 +16,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedSaleForReceipt, setSelectedSaleForReceipt] = useState<Sale | null>(null);
 
   // Filters
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all'>('today');
@@ -257,6 +259,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
                   <th className="p-4">Payment</th>
                   <th className="p-4">Items Sold</th>
                   <th className="p-4 text-right">Total Amount</th>
+                  <th className="p-4 text-center">Receipt</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
@@ -282,12 +285,29 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
                     <td className="p-4 text-right font-black text-amber-700">
                       {formatCurrency(sale.totalAmount, currency)}
                     </td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => setSelectedSaleForReceipt(sale)}
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Reprint</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {selectedSaleForReceipt && (
+        <ReceiptModal
+          sale={selectedSaleForReceipt}
+          businessConfig={businessConfig}
+          onClose={() => setSelectedSaleForReceipt(null)}
+        />
       )}
 
       {/* Confirmation Modal */}
