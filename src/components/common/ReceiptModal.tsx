@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Sale, BusinessConfig } from '../../types';
-import { X, CheckCircle2, Printer } from 'lucide-react';
-import { ThermalReceipt } from './ThermalReceipt';
-import { triggerThermalPrint } from '../../lib/thermalPrint';
+import { X, CheckCircle2, Printer, AlertCircle } from 'lucide-react';
+import { ThermalReceipt } from '../../printer/ThermalReceipt';
+import { thermalPrinterService } from '../../printer/ThermalPrinterService';
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -11,8 +11,32 @@ interface ReceiptModalProps {
 }
 
 export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProps) {
-  const handlePrint = () => {
-    triggerThermalPrint();
+  const [printing, setPrinting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const handleThermalPrint = async () => {
+    setPrinting(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const state = thermalPrinterService.getState();
+      if (state.status !== 'connected') {
+        await thermalPrinterService.connect();
+      }
+      await thermalPrinterService.printSale(sale, businessConfig);
+      setSuccessMsg('Receipt printed successfully via direct thermal driver!');
+    } catch (err: any) {
+      console.warn('Direct thermal print failed, falling back to browser print:', err);
+      try {
+        window.print();
+        setSuccessMsg('Opened browser print dialog.');
+      } catch (printErr: any) {
+        setError(printErr.message || err.message || 'Printing failed');
+      }
+    } finally {
+      setPrinting(false);
+    }
   };
 
   return (
@@ -32,6 +56,19 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
           </button>
         </div>
 
+        {error && (
+          <div className="mb-4 flex items-center space-x-2 rounded-xl bg-red-50 p-3 text-xs text-red-700">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="mb-4 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
+            {successMsg}
+          </div>
+        )}
+
         {/* Thermal Receipt Preview */}
         <div className="flex justify-center my-4">
           <ThermalReceipt sale={sale} businessConfig={businessConfig} />
@@ -40,11 +77,12 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         {/* Modal Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-2 pt-4 border-t border-gray-100">
           <button
-            onClick={handlePrint}
-            className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-3 text-sm font-bold text-white shadow-md transition-all cursor-pointer"
+            onClick={handleThermalPrint}
+            disabled={printing}
+            className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 py-3 text-sm font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-50"
           >
             <Printer className="h-4 w-4" />
-            <span>Print 58mm Thermal Receipt</span>
+            <span>{printing ? 'Printing...' : 'Print Thermal Receipt'}</span>
           </button>
 
           <button

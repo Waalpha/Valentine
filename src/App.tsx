@@ -22,6 +22,7 @@ import { ClosingsView } from './components/admin/ClosingsView';
 import { CashiersView } from './components/admin/CashiersView';
 import { AuditLogsView } from './components/admin/AuditLogsView';
 import { SettingsView } from './components/admin/SettingsView';
+import { PrinterSettingsView } from './components/admin/PrinterSettingsView';
 
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -235,6 +236,12 @@ export default function App() {
       )}
       {adminTab === 'audit' && (
         <AuditLogsView
+          user={userProfile}
+          businessConfig={businessConfig}
+        />
+      )}
+      {adminTab === 'printer' && (
+        <PrinterSettingsView
           user={userProfile}
           businessConfig={businessConfig}
         />

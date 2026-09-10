@@ -4,7 +4,7 @@ import { auth } from '../../lib/firebase';
 import { logAuditAction } from '../../lib/utils';
 import { 
   LayoutDashboard, Package, Layers, Receipt, CalendarCheck, 
-  Users, ShieldAlert, Settings, LogOut, Wine, TrendingUp 
+  Users, ShieldAlert, Settings, LogOut, Wine, Printer 
 } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 
@@ -32,6 +32,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
     { id: 'closings', label: 'Daily Closings', icon: CalendarCheck },
     { id: 'cashiers', label: 'Cashier Accounts', icon: Users },
     { id: 'audit', label: 'Audit Logs', icon: ShieldAlert },
+    { id: 'printer', label: 'Printer Settings', icon: Printer },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -62,7 +63,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all ${
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all cursor-pointer ${
                     isActive
                       ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
                       : 'hover:bg-slate-800 text-slate-300 hover:text-white'
@@ -85,7 +86,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
           <button
             onClick={handleSignOut}
             title="Sign Out"
-            className="p-2.5 rounded-xl bg-slate-800 text-red-400 hover:bg-slate-700 hover:text-red-300 transition-all shrink-0"
+            className="p-2.5 rounded-xl bg-slate-800 text-red-400 hover:bg-slate-700 hover:text-red-300 transition-all shrink-0 cursor-pointer"
           >
             <LogOut className="w-5 h-5" />
           </button>
