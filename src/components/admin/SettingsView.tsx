@@ -5,7 +5,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
 import { Settings, Save, CheckCircle2, AlertCircle, Building2, Trash2, AlertTriangle, RotateCcw, Printer, Bluetooth, Usb } from 'lucide-react';
 import { clearAllPaymentRecords } from '../../lib/offlineManager';
-import { getSavedPrinter, connectUsbPrinter, connectBridgePrinter, clearSavedPrinter, getPrinterDiagnostics, PrinterDevice, PrinterDiagnosticInfo } from '../../lib/thermalPrinter';
+import { getSavedPrinter, connectUsbPrinter, connectSerialPrinter, setBrowserPrintDefault, clearSavedPrinter, getPrinterDiagnostics, PrinterDevice, PrinterDiagnosticInfo } from '../../lib/thermalPrinter';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -74,15 +74,23 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     }
   };
 
-  const handleConnectBridge = async () => {
+  const handleBrowserPrint = () => {
+    setError('');
+    setPrinterMsg('');
+    const printer = setBrowserPrintDefault();
+    setSavedPrinter(printer);
+    setPrinterMsg('Set to Windows Direct Print / P58E Printer Queue.');
+  };
+
+  const handlePairSerial = async () => {
     setError('');
     setPrinterMsg('');
     try {
-      const printer = await connectBridgePrinter(bridgeUrlInput);
+      const printer = await connectSerialPrinter();
       setSavedPrinter(printer);
-      setPrinterMsg('Connected to Windows Print Bridge successfully!');
+      setPrinterMsg(`Connected Bluetooth COM Port / Serial printer: ${printer.name}`);
     } catch (err: any) {
-      setError(err.message || 'Failed to connect Print Bridge');
+      setError(err.message || 'Failed to connect Serial/COM printer');
     }
   };
 
@@ -178,46 +186,59 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
         </div>
 
         {/* Connection Options (Requirement 9) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          {/* USB Printer */}
-          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50">
-            <div className="flex items-center space-x-2 text-purple-700 font-bold text-sm">
-              <Usb className="w-5 h-5" />
-              <span>1. USB Thermal Printer</span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+          {/* Windows Direct Print */}
+          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2 text-emerald-700 font-bold text-sm">
+                <Printer className="w-5 h-5" />
+                <span>1. Windows Print Dialog</span>
+              </div>
+              <p className="text-xs text-gray-600">Instantly opens the Windows print dialog formatted for 58mm thermal rolls. Select your paired P58E printer.</p>
             </div>
-            <p className="text-xs text-gray-600">Connect P58 or other thermal printers directly via USB cable to your computer or Android tablet.</p>
             <button
               type="button"
-              onClick={handlePairUsb}
-              className="w-full flex items-center justify-center space-x-2 rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all"
+              onClick={handleBrowserPrint}
+              className="w-full flex items-center justify-center space-x-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all mt-3"
             >
-              <span>Pair / Connect USB Printer</span>
+              <span>Use Windows Print Queue</span>
             </button>
           </div>
 
-          {/* Bluetooth Printer via Print Bridge */}
-          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50">
-            <div className="flex items-center space-x-2 text-blue-700 font-bold text-sm">
-              <Bluetooth className="w-5 h-5" />
-              <span>2. Bluetooth Printer via Windows Print Bridge</span>
-            </div>
-            <p className="text-xs text-gray-600">For Windows Bluetooth Classic SPP printers (P58E). Connects via local bridge agent.</p>
+          {/* Bluetooth COM Port / Serial */}
+          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50 flex flex-col justify-between">
             <div className="space-y-2">
-              <input
-                type="text"
-                value={bridgeUrlInput}
-                onChange={(e) => setBridgeUrlInput(e.target.value)}
-                placeholder="http://localhost:9100/print"
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                onClick={handleConnectBridge}
-                className="w-full flex items-center justify-center space-x-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all"
-              >
-                <span>Connect Print Bridge</span>
-              </button>
+              <div className="flex items-center space-x-2 text-blue-700 font-bold text-sm">
+                <Bluetooth className="w-5 h-5" />
+                <span>2. Bluetooth Serial COM Port</span>
+              </div>
+              <p className="text-xs text-gray-600">Connects directly to Windows Bluetooth SPP virtual COM ports (Chrome / Edge Web Serial API).</p>
             </div>
+            <button
+              type="button"
+              onClick={handlePairSerial}
+              className="w-full flex items-center justify-center space-x-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all mt-3"
+            >
+              <span>Connect COM Port</span>
+            </button>
+          </div>
+
+          {/* USB Printer */}
+          <div className="rounded-2xl border border-gray-200 p-5 space-y-3 bg-gray-50/50 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2 text-purple-700 font-bold text-sm">
+                <Usb className="w-5 h-5" />
+                <span>3. USB Thermal Printer</span>
+              </div>
+              <p className="text-xs text-gray-600">Connect P58 or other thermal printers directly via USB cable (Web USB API).</p>
+            </div>
+            <button
+              type="button"
+              onClick={handlePairUsb}
+              className="w-full flex items-center justify-center space-x-2 rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-3 text-xs font-bold text-white shadow-xs transition-all mt-3"
+            >
+              <span>Pair USB Printer</span>
+            </button>
           </div>
         </div>
 

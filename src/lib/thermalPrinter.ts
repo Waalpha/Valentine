@@ -3,20 +3,19 @@ import { formatCurrency } from './utils';
 
 export interface PrinterDevice {
   name: string;
-  type: 'bluetooth_bridge' | 'usb' | 'bluetooth_ble';
+  type: 'browser_print' | 'serial' | 'usb';
   id?: string;
-  bridgeUrl?: string;
+  baudRate?: number;
 }
 
 export interface PrinterDiagnosticInfo {
-  bluetoothAvailable: boolean;
-  bluetoothProtocol: string;
-  compatibilityNote: string;
+  browserPrintSupported: boolean;
+  serialSupported: boolean;
+  usbSupported: boolean;
   printerDetected: string;
   connectionStatus: string;
   printingStatus: string;
   lastError: string;
-  bridgeUrl: string;
 }
 
 let lastErrorMsg = '';
@@ -26,101 +25,22 @@ export function getPrinterDiagnostics(): PrinterDiagnosticInfo {
   const nav = navigator as any;
   const saved = getSavedPrinter();
   return {
-    bluetoothAvailable: !!nav.bluetooth,
-    bluetoothProtocol: 'Bluetooth Classic (SPP) / Virtual COM Port (Incompatible with Web Bluetooth BLE/GATT)',
-    compatibilityNote: 'P58E paired in Windows uses Bluetooth Classic SPP, which Web Bluetooth cannot access. Use USB or the Local Print Bridge.',
-    printerDetected: saved ? saved.name : 'None configured',
-    connectionStatus: saved ? `Configured for ${saved.type}` : 'Disconnected',
+    browserPrintSupported: true,
+    serialSupported: !!nav.serial,
+    usbSupported: !!nav.usb,
+    printerDetected: saved ? saved.name : 'Browser Direct Print (Windows Printer Queue)',
+    connectionStatus: saved ? `Active: ${saved.name}` : 'Ready (Browser Print)',
     printingStatus: printingStatusState,
-    lastError: lastErrorMsg,
-    bridgeUrl: localStorage.getItem('bar_pos_print_bridge_url') || 'http://localhost:9100/print'
+    lastError: lastErrorMsg
   };
-}
-
-// Helper to encode text to Uint8Array (CP437 or ASCII friendly)
-function encodeText(text: string): Uint8Array {
-  return new TextEncoder().encode(text);
-}
-
-// ESC/POS Command constants
-const ESC = '\x1B';
-const GS = '\x1D';
-const INIT = ESC + '\x40';
-const ALIGN_LEFT = ESC + '\x61\x00';
-const ALIGN_CENTER = ESC + '\x61\x01';
-const ALIGN_RIGHT = ESC + '\x61\x02';
-const BOLD_ON = ESC + '\x45\x01';
-const BOLD_OFF = ESC + '\x45\x00';
-const CUT_PAPER = GS + '\x56\x41\x00';
-
-export function generateReceiptEscPos(sale: Sale, businessConfig?: BusinessConfig | null): Uint8Array {
-  const businessName = businessConfig?.name || 'Club Valentine';
-  const address = businessConfig?.address || 'Nairobi CBD';
-  const phone = businessConfig?.phone || '+254 712 345 678';
-  const footer = businessConfig?.receiptFooter || 'Thank you! Please drink responsibly.';
-  const currency = businessConfig?.currency || 'KSh';
-
-  let raw = INIT;
-
-  // Header
-  raw += ALIGN_CENTER + BOLD_ON;
-  raw += `${businessName.toUpperCase()}\n`;
-  raw += BOLD_OFF;
-  raw += `${address}\n`;
-  raw += `Tel: ${phone}\n`;
-  raw += '--------------------------------\n';
-
-  // Meta
-  raw += ALIGN_LEFT;
-  raw += `Receipt #: ${sale.id.slice(-8).toUpperCase()}\n`;
-  raw += `Date: ${sale.date} ${sale.time}\n`;
-  raw += `Cashier: ${sale.cashierName}\n`;
-  raw += `Payment: ${sale.paymentMethod}\n`;
-  raw += '--------------------------------\n';
-
-  // Items Header
-  raw += 'Item               Qty    Total\n';
-  raw += '--------------------------------\n';
-
-  sale.items.forEach(item => {
-    const name = item.productName.padEnd(18, ' ').substring(0, 18);
-    const qty = String(item.quantity).padStart(3, ' ');
-    const tot = String(item.totalAmount).padStart(6, ' ');
-    raw += `${name}${qty}${tot}\n`;
-  });
-
-  raw += '--------------------------------\n';
-
-  // Totals
-  raw += BOLD_ON;
-  raw += `TOTAL: ${currency} ${sale.totalAmount}\n`;
-  if (sale.amountTendered) {
-    raw += BOLD_OFF;
-    raw += `Tendered: ${currency} ${sale.amountTendered}\n`;
-    if (sale.change !== undefined && sale.change > 0) {
-      raw += `Change: ${currency} ${sale.change}\n`;
-    }
-  }
-  if (sale.referenceCode) {
-    raw += `Ref: ${sale.referenceCode}\n`;
-  }
-  raw += BOLD_OFF;
-
-  raw += '--------------------------------\n';
-  raw += ALIGN_CENTER;
-  raw += `${footer}\n`;
-  raw += '\n\n\n';
-  raw += CUT_PAPER;
-
-  return encodeText(raw);
 }
 
 export function getSavedPrinter(): PrinterDevice | null {
   try {
     const saved = localStorage.getItem('bar_pos_saved_printer');
-    return saved ? JSON.parse(saved) : null;
+    return saved ? JSON.parse(saved) : { name: 'Windows / P58E Thermal Printer (Direct)', type: 'browser_print' };
   } catch (e) {
-    return null;
+    return { name: 'Windows / P58E Thermal Printer (Direct)', type: 'browser_print' };
   }
 }
 
@@ -130,6 +50,30 @@ export function savePrinter(printer: PrinterDevice): void {
 
 export function clearSavedPrinter(): void {
   localStorage.removeItem('bar_pos_saved_printer');
+}
+
+export async function connectSerialPrinter(): Promise<PrinterDevice> {
+  const nav = navigator as any;
+  if (!nav.serial) {
+    throw new Error('Web Serial API is not supported in this browser. Please use Chrome or Edge.');
+  }
+
+  try {
+    const port = await nav.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+
+    const printerInfo: PrinterDevice = {
+      name: 'Bluetooth SPP / Serial Printer (P58E)',
+      type: 'serial',
+      baudRate: 9600
+    };
+
+    savePrinter(printerInfo);
+    return printerInfo;
+  } catch (err: any) {
+    lastErrorMsg = err.message || 'Failed to connect serial printer';
+    throw new Error(lastErrorMsg);
+  }
 }
 
 export async function connectUsbPrinter(): Promise<PrinterDevice> {
@@ -166,36 +110,10 @@ export async function connectUsbPrinter(): Promise<PrinterDevice> {
   }
 }
 
-export async function connectBridgePrinter(bridgeUrl = 'http://localhost:9100/print'): Promise<PrinterDevice> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 second timeout for local bridge connection
-
-  try {
-    const res = await fetch(bridgeUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        action: 'ping',
-        printerName: 'P58E Windows Bluetooth'
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    if (!res.ok) {
-      throw new Error(`Bridge returned HTTP status ${res.status}`);
-    }
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    throw new Error(`Unable to connect to Print Bridge at ${bridgeUrl}. Please verify your local Windows print agent is running. (${err.message})`);
-  }
-
-  localStorage.setItem('bar_pos_print_bridge_url', bridgeUrl);
+export function setBrowserPrintDefault(): PrinterDevice {
   const printerInfo: PrinterDevice = {
-    name: 'P58E Windows Bluetooth (Print Bridge)',
-    type: 'bluetooth_bridge',
-    bridgeUrl
+    name: 'Windows / P58E Thermal Printer (Direct)',
+    type: 'browser_print'
   };
   savePrinter(printerInfo);
   return printerInfo;
@@ -205,84 +123,114 @@ export async function printToThermalPrinter(sale: Sale, businessConfig?: Busines
   printingStatusState = 'Preparing receipt...';
   lastErrorMsg = '';
 
-  const printer = getSavedPrinter();
-  if (!printer) {
-    lastErrorMsg = 'No printer configured. Please configure USB or Print Bridge in Settings.';
-    printingStatusState = 'Error: No printer configured';
-    throw new Error(lastErrorMsg);
-  }
+  const printer = getSavedPrinter() || { name: 'Windows / P58E Thermal Printer (Direct)', type: 'browser_print' };
 
-  const escPosData = generateReceiptEscPos(sale, businessConfig);
-  const nav = navigator as any;
-
-  if (printer.type === 'usb') {
-    if (!nav.usb) throw new Error('Web USB not supported.');
-    printingStatusState = 'Connecting to USB printer...';
-    const devices = await nav.usb.getDevices();
-    let device = devices.find((d: any) => String(d.serialNumber || d.vendorId) === printer.id) || devices[0];
-    if (!device) {
-      device = await nav.usb.requestDevice({ filters: [] });
-    }
-    if (!device.opened) {
-      await device.open();
-    }
-    if (device.configuration === null && device.configurations.length > 0) {
-      await device.selectConfiguration(device.configurations[0].configurationValue);
-    }
-    try {
-      await device.claimInterface(0);
-    } catch (e) {
-      // ignore
+  // If browser print or fallback
+  if (printer.type === 'browser_print' || !printer.type) {
+    printingStatusState = 'Opening print dialog...';
+    
+    // Create printable receipt container
+    const printWindow = window.open('', '_blank', 'width=350,height=600');
+    if (!printWindow) {
+      throw new Error('Pop-up blocked. Please allow pop-ups to print receipts.');
     }
 
-    let endpointOut = 1;
-    const intf = device.configurations[0].interfaces[0];
-    for (const alt of intf.alternates) {
-      for (const ep of alt.endpoints) {
-        if (ep.direction === 'out') {
-          endpointOut = ep.endpointNumber;
-          break;
-        }
-      }
-    }
+    const businessName = businessConfig?.name || 'Club Valentine';
+    const address = businessConfig?.address || 'Nairobi CBD';
+    const phone = businessConfig?.phone || '+254 712 345 678';
+    const footer = businessConfig?.receiptFooter || 'Thank you! Please drink responsibly.';
+    const currency = businessConfig?.currency || 'KSh';
 
-    printingStatusState = 'Sending data to USB printer...';
-    await device.transferOut(endpointOut, escPosData);
-    printingStatusState = 'Printed successfully via USB';
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt - ${sale.id.slice(-8).toUpperCase()}</title>
+          <style>
+            @page {
+              size: 58mm auto;
+              margin: 0;
+            }
+            body {
+              font-family: 'Courier New', Courier, monospace;
+              width: 58mm;
+              margin: 0 auto;
+              padding: 4mm;
+              font-size: 11px;
+              color: #000;
+              background: #fff;
+            }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .line { border-bottom: 1px dashed #000; margin: 4px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { text-align: left; padding: 2px 0; font-size: 11px; }
+            th { border-bottom: 1px dashed #000; }
+            .right { text-align: right; }
+            .center-col { text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="center bold" style="font-size: 13px;">${businessName.toUpperCase()}</div>
+          <div class="center">${address}</div>
+          <div class="center">Tel: ${phone}</div>
+          <div class="line"></div>
+          <div>Receipt #: ${sale.id.slice(-8).toUpperCase()}</div>
+          <div>Date: ${sale.date} ${sale.time}</div>
+          <div>Cashier: ${sale.cashierName}</div>
+          <div>Payment: ${sale.paymentMethod}</div>
+          <div class="line"></div>
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th class="center-col">Qty</th>
+                <th class="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sale.items.map(item => `
+                <tr>
+                  <td>${item.productName}</td>
+                  <td class="center-col">${item.quantity}</td>
+                  <td class="right">${item.totalAmount}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="line"></div>
+          <div class="bold" style="font-size: 12px; display: flex; justify-content: space-between;">
+            <span>TOTAL:</span>
+            <span>${currency} ${sale.totalAmount}</span>
+          </div>
+          ${sale.amountTendered ? `
+            <div style="display: flex; justify-content: space-between;">
+              <span>Paid:</span>
+              <span>${currency} ${sale.amountTendered}</span>
+            </div>
+          ` : ''}
+          ${sale.change ? `
+            <div style="display: flex; justify-content: space-between;">
+              <span>Change:</span>
+              <span>${currency} ${sale.change}</span>
+            </div>
+          ` : ''}
+          ${sale.referenceCode ? `<div>Ref: ${sale.referenceCode}</div>` : ''}
+          <div class="line"></div>
+          <div class="center" style="margin-top: 6px;">${footer}</div>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printingStatusState = 'Print dialog opened successfully';
     return true;
   }
 
-  if (printer.type === 'bluetooth_bridge') {
-    printingStatusState = 'Sending to Windows Print Bridge...';
-    const bridgeUrl = printer.bridgeUrl || localStorage.getItem('bar_pos_print_bridge_url') || 'http://localhost:9100/print';
-    
-    try {
-      const base64Data = btoa(String.fromCharCode.apply(null, Array.from(escPosData)));
-      
-      const response = await fetch(bridgeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          printerName: printer.name,
-          dataBase64: base64Data,
-          rawBytes: Array.from(escPosData)
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Print Bridge responded with status ${response.status}: ${response.statusText}`);
-      }
-
-      printingStatusState = 'Printed successfully via Windows Print Bridge';
-      return true;
-    } catch (err: any) {
-      lastErrorMsg = `Print Bridge connection failed (${bridgeUrl}): ${err.message}. Ensure your local Windows print agent is running.`;
-      printingStatusState = 'Error: Print Bridge failed';
-      throw new Error(lastErrorMsg);
-    }
-  }
-
-  throw new Error('Unsupported printer configuration type.');
+  throw new Error('Unsupported printer type.');
 }

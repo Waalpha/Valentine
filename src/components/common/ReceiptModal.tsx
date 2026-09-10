@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sale, BusinessConfig } from '../../types';
 import { formatCurrency } from '../../lib/utils';
-import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react';
-import { getSavedPrinter, connectUsbPrinter, connectBridgePrinter, printToThermalPrinter, getPrinterDiagnostics, PrinterDevice, PrinterDiagnosticInfo } from '../../lib/thermalPrinter';
+import { Printer, X, CheckCircle2, Bluetooth, Usb, AlertCircle } from 'lucide-react';
+import { getSavedPrinter, connectUsbPrinter, connectSerialPrinter, setBrowserPrintDefault, printToThermalPrinter, getPrinterDiagnostics, PrinterDevice, PrinterDiagnosticInfo } from '../../lib/thermalPrinter';
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -25,15 +25,10 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
     return () => clearInterval(interval);
   }, []);
 
-  const handleConnectBridge = async () => {
-    setError('');
-    try {
-      const printer = await connectBridgePrinter();
-      setSavedPrinter(printer);
-      setSuccessMsg('Connected to Windows Print Bridge successfully!');
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect Print Bridge');
-    }
+  const handleBrowserPrintSelect = () => {
+    const printer = setBrowserPrintDefault();
+    setSavedPrinter(printer);
+    setSuccessMsg('Set to Windows Direct Print / P58E Printer Queue');
   };
 
   const handlePairUsb = async () => {
@@ -44,6 +39,17 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
       setSuccessMsg(`Paired USB thermal printer: ${printer.name}`);
     } catch (err: any) {
       setError(err.message || 'Failed to pair USB printer');
+    }
+  };
+
+  const handlePairSerial = async () => {
+    setError('');
+    try {
+      const printer = await connectSerialPrinter();
+      setSavedPrinter(printer);
+      setSuccessMsg(`Connected Bluetooth COM Port / Serial printer: ${printer.name}`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to connect Serial/COM printer');
     }
   };
 
@@ -179,35 +185,36 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
         <div className="mb-4 rounded-xl bg-gray-50 p-4 border border-gray-200 space-y-3 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-gray-700 uppercase tracking-wider">Printer & Protocol Status</span>
-            {savedPrinter ? (
-              <span className="inline-flex items-center space-x-1 rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-800">
-                <span>Active: {savedPrinter.name}</span>
-              </span>
-            ) : (
-              <span className="text-amber-600 font-medium">No printer configured</span>
-            )}
+            <span className="inline-flex items-center space-x-1 rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-800">
+              <span>Active: {savedPrinter?.name || 'Windows Direct Print'}</span>
+            </span>
           </div>
 
-          <div className="bg-white p-3 rounded-lg border border-gray-200 space-y-1 font-mono text-[11px] text-gray-600">
-            <div><span className="font-bold">Protocol:</span> {diagnostics.bluetoothProtocol.substring(0, 45)}...</div>
-            <div><span className="font-bold">Status:</span> {diagnostics.printingStatus}</div>
-            {diagnostics.lastError && <div className="text-red-600 font-bold">Error: {diagnostics.lastError}</div>}
-          </div>
+          <p className="text-gray-600 text-[11px]">
+            Direct print opens the Windows print dialog optimized for 58mm thermal rolls. Select your paired P58E printer and print instantly!
+          </p>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
-              onClick={handleConnectBridge}
-              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-medium text-gray-700 hover:bg-gray-100 transition-all"
+              onClick={handleBrowserPrintSelect}
+              className="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-300 bg-white font-medium text-gray-700 hover:bg-gray-100 transition-all text-center"
             >
-              <Bluetooth className="h-4 w-4 text-blue-600" />
-              <span>Use Print Bridge (P58E BT)</span>
+              <Printer className="h-4 w-4 text-emerald-600 mb-1" />
+              <span>Windows Print Dialog</span>
+            </button>
+            <button
+              onClick={handlePairSerial}
+              className="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-300 bg-white font-medium text-gray-700 hover:bg-gray-100 transition-all text-center"
+            >
+              <Bluetooth className="h-4 w-4 text-blue-600 mb-1" />
+              <span>Bluetooth COM Port</span>
             </button>
             <button
               onClick={handlePairUsb}
-              className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 font-medium text-gray-700 hover:bg-gray-100 transition-all"
+              className="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-300 bg-white font-medium text-gray-700 hover:bg-gray-100 transition-all text-center"
             >
-              <Usb className="h-4 w-4 text-purple-600" />
-              <span>Use USB Printer</span>
+              <Usb className="h-4 w-4 text-purple-600 mb-1" />
+              <span>USB Printer</span>
             </button>
           </div>
         </div>
@@ -220,7 +227,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
             className="flex flex-1 items-center justify-center space-x-2 rounded-xl bg-emerald-600 py-3 text-sm font-medium text-white shadow-md hover:bg-emerald-700 transition-all disabled:opacity-50"
           >
             <Printer className="h-4 w-4" />
-            <span>{printing ? 'Printing...' : (savedPrinter ? `Print via ${savedPrinter.name}` : 'Print via Thermal Printer')}</span>
+            <span>{printing ? 'Opening Print...' : 'Print Receipt Now'}</span>
           </button>
 
           <button
