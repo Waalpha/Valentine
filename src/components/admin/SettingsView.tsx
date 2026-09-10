@@ -3,8 +3,9 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
-import { Settings, Save, CheckCircle2, AlertCircle, Building2, Trash2, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Settings, Save, CheckCircle2, AlertCircle, Building2, Trash2, AlertTriangle, RotateCcw, Printer, Bluetooth, Usb } from 'lucide-react';
 import { clearAllPaymentRecords } from '../../lib/offlineManager';
+import { getSavedPrinter, connectBluetoothPrinter, connectUsbPrinter, clearSavedPrinter, PrinterDevice } from '../../lib/thermalPrinter';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -30,6 +31,10 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Printer State
+  const [savedPrinter, setSavedPrinter] = useState<PrinterDevice | null>(null);
+  const [printerMsg, setPrinterMsg] = useState('');
+
   // Clear Payment / Sales Records State
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -40,6 +45,7 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     if (businessConfig) {
       setFormData(businessConfig);
     }
+    setSavedPrinter(getSavedPrinter());
   }, [businessConfig]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -62,11 +68,41 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     }
   };
 
+  const handlePairBluetooth = async () => {
+    setError('');
+    setPrinterMsg('');
+    try {
+      const printer = await connectBluetoothPrinter();
+      setSavedPrinter(printer);
+      setPrinterMsg(`Successfully paired Bluetooth printer: ${printer.name}`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to pair Bluetooth printer');
+    }
+  };
+
+  const handlePairUsb = async () => {
+    setError('');
+    setPrinterMsg('');
+    try {
+      const printer = await connectUsbPrinter();
+      setSavedPrinter(printer);
+      setPrinterMsg(`Successfully paired USB printer: ${printer.name}`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to pair USB printer');
+    }
+  };
+
+  const handleDisconnectPrinter = () => {
+    clearSavedPrinter();
+    setSavedPrinter(null);
+    setPrinterMsg('Thermal printer disconnected.');
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Business Settings & Configuration</h2>
-        <p className="text-sm text-gray-500">Configure bar name, contact info, currency, operating hours, and receipt branding</p>
+        <p className="text-sm text-gray-500">Configure bar name, contact info, currency, operating hours, thermal printers, and receipt branding</p>
       </div>
 
       {success && (
@@ -82,6 +118,73 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
           <span>{error}</span>
         </div>
       )}
+
+      {printerMsg && (
+        <div className="flex items-center space-x-3 rounded-2xl bg-blue-50 p-4 text-sm text-blue-800 border border-blue-200">
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-blue-600" />
+          <span>{printerMsg}</span>
+        </div>
+      )}
+
+      {/* Thermal Printer Configuration Card */}
+      <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-amber-50 rounded-2xl text-amber-700">
+              <Printer className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Bluetooth & USB Thermal Receipt Printer</h3>
+              <p className="text-sm text-gray-500">Pair ESC/POS thermal printers (58mm/80mm) for direct POS receipt printing</p>
+            </div>
+          </div>
+          {savedPrinter ? (
+            <span className="inline-flex items-center space-x-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+              <span>Connected: {savedPrinter.name}</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center space-x-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+              <span>No Printer Paired</span>
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+          <button
+            type="button"
+            onClick={handlePairBluetooth}
+            className="flex items-center justify-center space-x-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 px-4 py-3.5 text-sm font-semibold text-gray-700 shadow-xs transition-all"
+          >
+            <Bluetooth className="w-5 h-5 text-blue-600" />
+            <span>Pair Bluetooth Printer</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePairUsb}
+            className="flex items-center justify-center space-x-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 px-4 py-3.5 text-sm font-semibold text-gray-700 shadow-xs transition-all"
+          >
+            <Usb className="w-5 h-5 text-purple-600" />
+            <span>Pair USB Printer</span>
+          </button>
+
+          {savedPrinter ? (
+            <button
+              type="button"
+              onClick={handleDisconnectPrinter}
+              className="flex items-center justify-center space-x-2 rounded-2xl border border-red-200 bg-red-50 hover:bg-red-100 px-4 py-3.5 text-sm font-semibold text-red-700 transition-all"
+            >
+              <Trash2 className="w-5 h-5" />
+              <span>Disconnect Printer</span>
+            </button>
+          ) : (
+            <div className="flex items-center justify-center text-xs text-gray-400 italic px-2">
+              Supports standard ESC/POS Bluetooth & USB thermal printers on Chrome/Edge/Android.
+            </div>
+          )}
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-3xl p-8 border border-gray-200 shadow-xs space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
