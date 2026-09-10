@@ -203,7 +203,7 @@ export function ReceiptModal({ sale, businessConfig, onClose }: ReceiptModalProp
               className="flex items-center justify-center space-x-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
             >
               <Bluetooth className="h-4 w-4 text-blue-600" />
-              <span>Pair Bluetooth</span>
+              <span>Pair P58 Bluetooth</span>
             </button>
             <button
               onClick={handlePairUsb}

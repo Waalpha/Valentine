@@ -23,25 +23,42 @@ const BOLD_ON = ESC + '\x45\x01';
 const BOLD_OFF = ESC + '\x45\x00';
 const CUT_PAPER = GS + '\x56\x41\x00';
 
-export async function connectBluetoothPrinter(): Promise<PrinterDevice> {
+export async function connectP58BluetoothPrinter(): Promise<PrinterDevice> {
   const nav = navigator as any;
   if (!nav.bluetooth) {
     throw new Error('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or an Android browser.');
   }
 
   try {
-    const device = await nav.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [
-        '000018f0-0000-1000-8000-00805f9b34fb', // Common thermal printer service UUID
-        '00001101-0000-1000-8000-00805f9b34fb', // Serial Port Profile (SPP)
-        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455'
-      ]
-    });
+    let device;
+    try {
+      device = await nav.bluetooth.requestDevice({
+        filters: [
+          { namePrefix: 'P58' },
+          { namePrefix: 'POS' },
+          { namePrefix: 'MPT' },
+          { namePrefix: 'Printer' },
+          { namePrefix: 'BT' }
+        ],
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          '00001101-0000-1000-8000-00805f9b34fb',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        ]
+      });
+    } catch (filterErr) {
+      device = await nav.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          '00001101-0000-1000-8000-00805f9b34fb',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        ]
+      });
+    }
 
     const printerInfo: PrinterDevice = {
-      name: device.name || 'Bluetooth Thermal Printer',
+      name: device.name || 'P58 Thermal Printer',
       type: 'bluetooth',
       id: device.id
     };
@@ -49,8 +66,12 @@ export async function connectBluetoothPrinter(): Promise<PrinterDevice> {
     localStorage.setItem('bar_pos_saved_printer', JSON.stringify(printerInfo));
     return printerInfo;
   } catch (err: any) {
-    throw new Error(err.message || 'Failed to connect Bluetooth printer');
+    throw new Error(err.message || 'Failed to connect P58 Bluetooth printer');
   }
+}
+
+export async function connectBluetoothPrinter(): Promise<PrinterDevice> {
+  return connectP58BluetoothPrinter();
 }
 
 export async function connectUsbPrinter(): Promise<PrinterDevice> {

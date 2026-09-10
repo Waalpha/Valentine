@@ -134,8 +134,8 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
               <Printer className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Bluetooth & USB Thermal Receipt Printer</h3>
-              <p className="text-sm text-gray-500">Pair ESC/POS thermal printers (58mm/80mm) for direct POS receipt printing</p>
+              <h3 className="text-lg font-bold text-gray-900">P58 & Thermal Receipt Printers (BT / USB)</h3>
+              <p className="text-sm text-gray-500">Pair P58 (58mm) and other ESC/POS thermal receipt printers for direct POS printing</p>
             </div>
           </div>
           {savedPrinter ? (
@@ -157,7 +157,7 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
             className="flex items-center justify-center space-x-2 rounded-2xl border border-gray-300 bg-white hover:bg-gray-50 px-4 py-3.5 text-sm font-semibold text-gray-700 shadow-xs transition-all"
           >
             <Bluetooth className="w-5 h-5 text-blue-600" />
-            <span>Pair Bluetooth Printer</span>
+            <span>Pair P58 Bluetooth Printer</span>
           </button>
 
           <button
