@@ -11,6 +11,7 @@ interface CashierStockViewProps {
 }
 
 export function CashierStockView({ user, businessConfig }: CashierStockViewProps) {
+  const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [soldMap, setSoldMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -18,16 +19,16 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
   useEffect(() => {
     fetchStockData();
-  }, []);
+  }, [tenantId]);
 
   async function fetchStockData() {
     // Load local stock first for instant display
-    const cachedProds = getLocalCachedProducts();
+    const cachedProds = getLocalCachedProducts(tenantId);
     if (cachedProds.length > 0) {
       setProducts(cachedProds);
       // Calculate sold map from local sales
       try {
-        const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+        const localSales: Sale[] = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
         const todayStr = new Date().toISOString().split('T')[0];
         const sMap: Record<string, number> = {};
         localSales.filter(s => s.date === todayStr).forEach(sale => {
@@ -43,7 +44,7 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
     try {
       // 1. Fetch products
-      const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
+      const prodRef = collection(db, 'businesses', tenantId, 'products');
       const prodSnap = await getDocs(prodRef);
       const prods: Product[] = [];
       prodSnap.forEach(d => {
@@ -52,7 +53,7 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
       // 2. Calculate sold quantities for today from sales
       const todayStr = new Date().toISOString().split('T')[0];
-      const salesRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales');
+      const salesRef = collection(db, 'businesses', tenantId, 'sales');
       const salesQuery = query(salesRef, where('date', '==', todayStr));
       const salesSnap = await getDocs(salesQuery);
 
@@ -66,15 +67,15 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
       if (prods.length > 0) {
         setProducts(prods);
-        cacheLocalProducts(prods);
+        cacheLocalProducts(prods, tenantId);
       }
       setSoldMap(sMap);
     } catch (err) {
       console.warn("Working offline: showing local cached stock data:", err);
-      const localProds = getLocalCachedProducts();
+      const localProds = getLocalCachedProducts(tenantId);
       setProducts(localProds);
       try {
-        const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+        const localSales: Sale[] = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
         const todayStr = new Date().toISOString().split('T')[0];
         const sMap: Record<string, number> = {};
         localSales.filter(s => s.date === todayStr).forEach(sale => {
@@ -91,10 +92,15 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
     }
   }
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.categoryName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.categoryName.toLowerCase().includes(q) ||
+      (p.barcode != null && String(p.barcode).toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -144,7 +150,14 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
                   return (
                     <tr key={product.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="p-4 font-bold text-gray-900">{product.name}</td>
+                      <td className="p-4">
+                        <div className="font-bold text-gray-900">{product.name}</div>
+                        {product.barcode && (
+                          <div className="text-[11px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                            #{product.barcode}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-4">
                         <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
                           {product.categoryName}

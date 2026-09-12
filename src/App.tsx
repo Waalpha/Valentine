@@ -33,6 +33,7 @@ export default function App() {
   // Navigation tab states
   const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'sales' | 'stock' | 'closing'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
+  const [prefillProductBarcode, setPrefillProductBarcode] = useState<string | null>(null);
 
   useEffect(() => {
     const localUserStr = localStorage.getItem('bar_pos_local_user');
@@ -160,6 +161,14 @@ export default function App() {
           <RecordSaleView
             user={userProfile}
             businessConfig={businessConfig}
+            onNavigateToProducts={(barcode) => {
+              if (userProfile.role === 'admin' || userProfile.role === 'manager') {
+                setPrefillProductBarcode(barcode || null);
+                setAdminTab('products');
+              } else {
+                alert(`Scanned Barcode: ${barcode}\nPlease notify an administrator to add this item to the catalog.`);
+              }
+            }}
           />
         )}
         {cashierTab === 'sales' && (
@@ -208,6 +217,8 @@ export default function App() {
         <ProductsView
           user={userProfile}
           businessConfig={businessConfig}
+          initialBarcode={prefillProductBarcode}
+          onClearInitialBarcode={() => setPrefillProductBarcode(null)}
         />
       )}
       {adminTab === 'stock' && (

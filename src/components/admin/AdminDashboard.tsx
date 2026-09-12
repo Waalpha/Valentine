@@ -36,10 +36,11 @@ export function AdminDashboard({ user, businessConfig }: AdminDashboardProps) {
 
   async function fetchAdminDashboardData() {
     try {
+      const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
       const todayStr = new Date().toISOString().split('T')[0];
 
       // 1. Fetch products
-      const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
+      const prodRef = collection(db, 'businesses', tenantId, 'products');
       const prodSnap = await getDocs(prodRef);
       let curStock = 0;
       let opStock = 0;
@@ -59,7 +60,7 @@ export function AdminDashboard({ user, businessConfig }: AdminDashboardProps) {
       });
 
       // 2. Fetch today's sales
-      const salesRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales');
+      const salesRef = collection(db, 'businesses', tenantId, 'sales');
       const salesQuery = query(salesRef, where('date', '==', todayStr));
       const salesSnap = await getDocs(salesQuery);
 

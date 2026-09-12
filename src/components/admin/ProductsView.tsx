@@ -3,14 +3,21 @@ import { UserProfile, BusinessConfig, Product, Category } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
-import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Barcode, Printer, Sparkles } from 'lucide-react';
+import { BarcodeSvg } from '../common/BarcodeSvg';
+import { PrintBarcodeLabelModal } from '../common/PrintBarcodeLabelModal';
+import { generateBarcode, isBarcodeUniqueWithinTenant } from '../../lib/barcodeUtils';
+import { cacheLocalProducts, getLocalCachedProducts } from '../../lib/offlineManager';
 
 interface ProductsViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
+  initialBarcode?: string | null;
+  onClearInitialBarcode?: () => void;
 }
 
-export function ProductsView({ user, businessConfig }: ProductsViewProps) {
+export function ProductsView({ user, businessConfig, initialBarcode, onClearInitialBarcode }: ProductsViewProps) {
+  const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,11 +28,13 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [labelModalProduct, setLabelModalProduct] = useState<Product | null>(null);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    barcode: '',
     categoryId: '',
     unitType: 'Bottle' as Product['unitType'],
     buyingPrice: 0,
@@ -40,17 +49,44 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
     fetchProductsAndCategories();
   }, []);
 
+  useEffect(() => {
+    if (initialBarcode != null && String(initialBarcode).trim()) {
+      setEditingProduct(null);
+      setFormData({
+        name: '',
+        barcode: String(initialBarcode).trim(),
+        categoryId: categories[0]?.id || '',
+        unitType: 'Bottle',
+        buyingPrice: 0,
+        sellingPrice: 0,
+        openingStock: 0,
+        currentStock: 0,
+        minStockLevel: 10
+      });
+      setIsModalOpen(true);
+      if (onClearInitialBarcode) {
+        onClearInitialBarcode();
+      }
+    }
+  }, [initialBarcode, categories]);
+
   async function fetchProductsAndCategories() {
     try {
-      const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
+      const prodRef = collection(db, 'businesses', tenantId, 'products');
       const prodSnap = await getDocs(prodRef);
       const prods: Product[] = [];
       prodSnap.forEach(d => {
-        prods.push({ id: d.id, ...d.data() } as Product);
+        const data = d.data();
+        prods.push({ 
+          id: d.id, 
+          ...data,
+          barcode: data.barcode != null ? String(data.barcode).trim() : undefined
+        } as Product);
       });
       setProducts(prods);
+      cacheLocalProducts(prods, tenantId);
 
-      const catRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'categories');
+      const catRef = collection(db, 'businesses', tenantId, 'categories');
       const catSnap = await getDocs(catRef);
       const cats: Category[] = [];
       catSnap.forEach(d => {
@@ -60,10 +96,8 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
     } catch (err) {
       console.warn("Using local fallback products due to permission error:", err);
       try {
-        const localProds = JSON.parse(localStorage.getItem('bar_pos_local_products') || '[{"id":"p1","name":"Tusker Lager 500ml","categoryId":"cat-beer","categoryName":"Beers","unitType":"Bottle","buyingPrice":180,"sellingPrice":250,"openingStock":50,"stockAdded":0,"currentStock":45,"minStockLevel":10},{"id":"p2","name":"White Cap Lager","categoryId":"cat-beer","categoryName":"Beers","unitType":"Bottle","buyingPrice":180,"sellingPrice":250,"openingStock":40,"stockAdded":0,"currentStock":38,"minStockLevel":10}]');
-        const localCats = JSON.parse(localStorage.getItem('bar_pos_local_categories') || '[{"id":"cat-beer","name":"Beers","description":"Local and imported beers"},{"id":"cat-spirits","name":"Spirits & Whiskey","description":"Whiskey, Vodka, Gin"}]');
+        const localProds = getLocalCachedProducts(tenantId);
         setProducts(localProds);
-        setCategories(localCats);
       } catch (e) {
         setProducts([]);
         setCategories([]);
@@ -78,13 +112,14 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
       alert("No products to export.");
       return;
     }
-    const headers = ['id', 'name', 'categoryId', 'categoryName', 'unitType', 'buyingPrice', 'sellingPrice', 'openingStock', 'currentStock', 'minStockLevel'];
+    const headers = ['id', 'name', 'barcode', 'categoryId', 'categoryName', 'unitType', 'buyingPrice', 'sellingPrice', 'openingStock', 'currentStock', 'minStockLevel'];
     const csvRows = [headers.join(',')];
 
     products.forEach(p => {
       const row = [
         p.id,
         `"${(p.name || '').replace(/"/g, '""')}"`,
+        `"${(p.barcode || '').replace(/"/g, '""')}"`,
         p.categoryId || 'cat-beer',
         `"${(p.categoryName || 'Beers').replace(/"/g, '""')}"`,
         p.unitType || 'Bottle',
@@ -125,6 +160,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
         // Parse header
         const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
         const nameIdx = header.indexOf('name');
+        const barcodeIdx = header.indexOf('barcode');
         const catIdIdx = header.indexOf('categoryId');
         const catNameIdx = header.indexOf('categoryName');
         const unitIdx = header.indexOf('unitType');
@@ -162,6 +198,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           cleanRow.push(currentVal.trim().replace(/^"|"$/g, ''));
 
           const name = (nameIdx !== -1 && cleanRow[nameIdx]) ? cleanRow[nameIdx] : `Product ${i}`;
+          const barcode = (barcodeIdx !== -1 && cleanRow[barcodeIdx]) ? cleanRow[barcodeIdx] : undefined;
           const categoryId = (catIdIdx !== -1 && cleanRow[catIdIdx]) ? cleanRow[catIdIdx] : categories[0]?.id || 'cat-beer';
           const categoryName = (catNameIdx !== -1 && cleanRow[catNameIdx]) ? cleanRow[catNameIdx] : 'Beers';
           const unitType = (unitIdx !== -1 && cleanRow[unitIdx]) ? cleanRow[unitIdx] as Product['unitType'] : 'Bottle';
@@ -174,6 +211,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           const newProd: Product = {
             id: productId,
             name,
+            barcode,
             categoryId,
             categoryName,
             unitType: ['Bottle', 'Cans', 'Tot', 'Pint', 'Pitcher', 'Glass', 'Packet', 'Piece'].includes(unitType) ? unitType : 'Bottle',
@@ -184,12 +222,13 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
             stockAdded: 0,
             minStockLevel,
             status: 'active',
+            businessId: tenantId,
             createdAt: now,
             updatedAt: now
           };
 
           try {
-            await setDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', productId), newProd);
+            await setDoc(doc(db, 'businesses', tenantId, 'products', productId), newProd);
           } catch (err) {
             // Firestore permission fallback
           }
@@ -198,7 +237,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
         }
 
         setProducts(newProds);
-        localStorage.setItem('bar_pos_local_products', JSON.stringify(newProds));
+        cacheLocalProducts(newProds, tenantId);
         await logAuditAction(user.uid, user.name, 'PRODUCTS_IMPORTED', `Imported ${importedCount} products via CSV`);
         alert(`Successfully imported ${importedCount} products!`);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -218,13 +257,13 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
       // Delete all products from Firestore
       for (const p of products) {
         try {
-          await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', p.id));
+          await deleteDoc(doc(db, 'businesses', tenantId, 'products', p.id));
         } catch (err) {
           console.warn(`Could not delete product ${p.id} from Firestore`, err);
         }
       }
       setProducts([]);
-      localStorage.setItem('bar_pos_local_products', JSON.stringify([]));
+      cacheLocalProducts([], tenantId);
       await logAuditAction(user.uid, user.name, 'PRODUCTS_DELETED_ALL', `Deleted all ${products.length} products from catalog`);
       setIsDeleteAllModalOpen(false);
       setDeleteAllConfirmText('');
@@ -236,10 +275,11 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
     }
   };
 
-  const handleOpenAddModal = () => {
+  const handleOpenAddModal = (initialBarcode?: string) => {
     setEditingProduct(null);
     setFormData({
       name: '',
+      barcode: initialBarcode != null ? String(initialBarcode).trim() : '',
       categoryId: categories[0]?.id || 'cat-beer',
       unitType: 'Bottle',
       buyingPrice: 150,
@@ -255,7 +295,8 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   const handleOpenEditModal = (product: Product) => {
     setEditingProduct(product);
     setFormData({
-      name: product.name,
+      name: product.name || '',
+      barcode: product.barcode != null ? String(product.barcode).trim() : '',
       categoryId: product.categoryId,
       unitType: product.unitType,
       buyingPrice: product.buyingPrice || 0,
@@ -268,11 +309,30 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
     setIsModalOpen(true);
   };
 
+  const handleAutoGenerateBarcode = () => {
+    const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
+    const newCode = generateBarcode('CODE128', existingCodes);
+    setFormData(prev => ({ ...prev, barcode: newCode }));
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
       setError('Product name is required');
       return;
+    }
+
+    const cleanBarcode = String(formData.barcode ?? '').trim();
+    if (cleanBarcode) {
+      const { isUnique, conflictProduct } = isBarcodeUniqueWithinTenant(
+        cleanBarcode,
+        editingProduct?.id || null,
+        products
+      );
+      if (!isUnique) {
+        setError(`Duplicate Barcode: Barcode "${cleanBarcode}" is already assigned to "${conflictProduct?.name}". Barcodes must be unique within your business.`);
+        return;
+      }
     }
 
     try {
@@ -282,9 +342,10 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
 
       if (editingProduct) {
         // Edit
-        const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', editingProduct.id);
+        const prodRef = doc(db, 'businesses', tenantId, 'products', editingProduct.id);
         const updatedData = {
           name: formData.name.trim(),
+          barcode: cleanBarcode || null,
           categoryId: formData.categoryId,
           categoryName,
           unitType: formData.unitType,
@@ -293,16 +354,18 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           openingStock: Number(formData.openingStock),
           currentStock: Number(formData.currentStock),
           minStockLevel: Number(formData.minStockLevel),
+          businessId: tenantId,
           updatedAt: now
         };
         await updateDoc(prodRef, updatedData);
-        await logAuditAction(user.uid, user.name, 'PRODUCT_EDITED', `Updated product ${formData.name}`, editingProduct.id);
+        await logAuditAction(user.uid, user.name, 'PRODUCT_EDITED', `Updated product ${formData.name} (Barcode: ${cleanBarcode || 'none'})`, editingProduct.id);
       } else {
         // Create
         const productId = 'prod-' + Date.now();
         const newProduct: Product = {
           id: productId,
           name: formData.name.trim(),
+          barcode: cleanBarcode || undefined,
           categoryId: formData.categoryId,
           categoryName,
           unitType: formData.unitType,
@@ -313,12 +376,13 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
           stockAdded: 0,
           minStockLevel: Number(formData.minStockLevel),
           status: 'active',
+          businessId: tenantId,
           createdAt: now,
           updatedAt: now
         };
-        const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', productId);
+        const prodRef = doc(db, 'businesses', tenantId, 'products', productId);
         await setDoc(prodRef, newProduct);
-        await logAuditAction(user.uid, user.name, 'PRODUCT_CREATED', `Created product ${formData.name}`, productId);
+        await logAuditAction(user.uid, user.name, 'PRODUCT_CREATED', `Created product ${formData.name} (Barcode: ${cleanBarcode || 'none'})`, productId);
       }
 
       setIsModalOpen(false);
@@ -333,7 +397,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
     if (!window.confirm(`Are you sure you want to delete ${product.name}?`)) return;
 
     try {
-      await deleteDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', product.id));
+      await deleteDoc(doc(db, 'businesses', tenantId, 'products', product.id));
       await logAuditAction(user.uid, user.name, 'PRODUCT_DELETED', `Deleted product ${product.name}`, product.id);
       await fetchProductsAndCategories();
     } catch (err: any) {
@@ -344,7 +408,11 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
 
   const filteredProducts = products.filter(p => {
     const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q ||
+      p.name.toLowerCase().includes(q) ||
+      p.categoryName.toLowerCase().includes(q) ||
+      (p.barcode != null && String(p.barcode).toLowerCase().includes(q));
     return matchesCat && matchesSearch;
   });
 
@@ -455,6 +523,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs font-bold uppercase tracking-wider text-gray-500">
                   <th className="p-4">Product Name</th>
+                  <th className="p-4">Barcode</th>
                   <th className="p-4">Category</th>
                   <th className="p-4">Unit</th>
                   <th className="p-4 text-right">Selling Price</th>
@@ -468,6 +537,35 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
                   <tr key={product.id} className="hover:bg-gray-50/80 transition-colors">
                     <td className="p-4 font-bold text-gray-900">{product.name}</td>
                     <td className="p-4">
+                      {product.barcode ? (
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
+                            {product.barcode}
+                          </span>
+                          <button
+                            onClick={() => setLabelModalProduct(product)}
+                            className="p-1 rounded text-gray-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                            title="Print Barcode Label"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            handleOpenEditModal(product);
+                            const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
+                            const newCode = generateBarcode('CODE128', existingCodes);
+                            setFormData(prev => ({ ...prev, barcode: newCode }));
+                          }}
+                          className="text-xs text-amber-600 hover:text-amber-700 font-medium hover:underline flex items-center space-x-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Assign</span>
+                        </button>
+                      )}
+                    </td>
+                    <td className="p-4">
                       <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
                         {product.categoryName}
                       </span>
@@ -478,7 +576,16 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
                     </td>
                     <td className="p-4 text-center font-medium text-gray-700">{product.openingStock}</td>
                     <td className="p-4 text-center font-bold text-gray-900">{product.currentStock}</td>
-                    <td className="p-4 text-right space-x-2">
+                    <td className="p-4 text-right space-x-2 whitespace-nowrap">
+                      {product.barcode && (
+                        <button
+                          onClick={() => setLabelModalProduct(product)}
+                          className="p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
+                          title="Print Barcode Label"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleOpenEditModal(product)}
                         className="p-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all"
@@ -505,7 +612,7 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-6">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl space-y-6">
             <div className="flex items-center justify-between border-b border-gray-100 pb-4">
               <h3 className="text-xl font-bold text-gray-900">
                 {editingProduct ? 'Edit Product' : 'Create New Product'}
@@ -538,6 +645,39 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
                   placeholder="e.g. Tusker Lager (500ml)"
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
                 />
+              </div>
+
+              {/* Barcode Field with Auto-Generate & Live Preview */}
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-amber-900 flex items-center space-x-1.5">
+                    <Barcode className="w-4 h-4 text-amber-700" />
+                    <span>Product Barcode (UPC / EAN / Code-128)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateBarcode}
+                    className="inline-flex items-center space-x-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 text-xs font-bold shadow-xs transition-all"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Auto-Generate</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={formData.barcode ?? ''}
+                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                  placeholder="Scan with scanner or type barcode (e.g. 6161100010012)"
+                  className="w-full rounded-xl border border-amber-300 bg-white p-2.5 font-mono text-sm tracking-wider focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+                />
+                <p className="text-[11px] text-gray-500">
+                  Must be unique per business tenant. Supports handheld USB scanners, wireless Bluetooth scanners, and retail codes.
+                </p>
+                {String(formData.barcode ?? '').trim() && (
+                  <div className="pt-2 border-t border-amber-100 flex flex-col items-center">
+                    <BarcodeSvg value={String(formData.barcode ?? '').trim()} height={45} className="max-w-full" />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -739,6 +879,15 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Print Barcode Label Modal */}
+      {labelModalProduct && (
+        <PrintBarcodeLabelModal
+          product={labelModalProduct}
+          businessConfig={businessConfig}
+          onClose={() => setLabelModalProduct(null)}
+        />
       )}
     </div>
   );

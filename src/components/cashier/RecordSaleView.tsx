@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, BusinessConfig, Product, SaleItem, Sale, PaymentMethod } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -16,9 +16,18 @@ import {
   Smartphone,
   CircleDollarSign,
   ArrowLeft,
-  X
+  X,
+  Barcode,
+  Camera,
+  ScanLine,
+  Zap,
+  Check,
+  RotateCcw
 } from 'lucide-react';
 import { ReceiptModal } from '../common/ReceiptModal';
+import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
+import { UnknownBarcodeModal } from '../common/UnknownBarcodeModal';
+import { posAudio } from '../../lib/barcodeUtils';
 import {
   saveSaleLocallyAndQueue,
   cacheLocalProducts,
@@ -31,15 +40,26 @@ import {
 interface RecordSaleViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
+  onNavigateToProducts?: (prefillBarcode?: string) => void;
 }
 
-export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
+export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: RecordSaleViewProps) {
+  const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<SaleItem[]>([]);
   
+  // Barcode scanner states
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
+  const [showUnknownBarcodeModal, setShowUnknownBarcodeModal] = useState(false);
+  const [unknownBarcode, setUnknownBarcode] = useState('');
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error'; text: string; sub?: string } | null>(null);
+  const scannerBufferRef = useRef<{ buffer: string; lastTime: number }>({ buffer: '', lastTime: 0 });
+
   // Payment states
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [amountTendered, setAmountTendered] = useState<string>('');
@@ -61,9 +81,62 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
     fetchProductsAndCategories();
   }, []);
 
+  // Autofocus barcode input on mount and recover focus when clicking blank POS areas
+  useEffect(() => {
+    barcodeInputRef.current?.focus();
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const isInteractive = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName);
+      if (!isInteractive) {
+        barcodeInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Global hardware scanner listener: captures rapid keystroke bursts from USB / Bluetooth scanners
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      // Do not intercept if user is purposefully typing in another form field
+      const isOtherInput = activeEl && activeEl !== barcodeInputRef.current && (
+        activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT'
+      );
+      if (isOtherInput) return;
+
+      const now = Date.now();
+      const timeDiff = now - scannerBufferRef.current.lastTime;
+      scannerBufferRef.current.lastTime = now;
+
+      if (e.key === 'Enter') {
+        if (scannerBufferRef.current.buffer.length >= 3) {
+          e.preventDefault();
+          const code = scannerBufferRef.current.buffer;
+          scannerBufferRef.current.buffer = '';
+          processBarcode(code);
+        }
+        return;
+      }
+
+      if (e.key.length === 1) {
+        // Hardware scanners burst keystrokes < 50ms apart
+        if (timeDiff < 60 || scannerBufferRef.current.buffer.length === 0) {
+          scannerBufferRef.current.buffer += e.key;
+        } else {
+          scannerBufferRef.current.buffer = e.key;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [products, cart, businessConfig]);
+
   async function fetchProductsAndCategories() {
-    // 1. Instant load from offline cache
-    const cachedProds = getLocalCachedProducts();
+    // 1. Instant load from offline cache scoped to tenant
+    const cachedProds = getLocalCachedProducts(tenantId);
     if (cachedProds.length > 0) {
       setProducts(cachedProds);
     }
@@ -78,7 +151,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
     }
 
     try {
-      const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
+      const prodRef = collection(db, 'businesses', tenantId, 'products');
       const prodSnap = await getDocs(prodRef);
       const prods: Product[] = [];
       prodSnap.forEach(d => {
@@ -86,10 +159,10 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       });
       if (prods.length > 0) {
         setProducts(prods);
-        cacheLocalProducts(prods);
+        cacheLocalProducts(prods, tenantId);
       }
 
-      const catRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'categories');
+      const catRef = collection(db, 'businesses', tenantId, 'categories');
       const catSnap = await getDocs(catRef);
       const cats: { id: string; name: string }[] = [];
       catSnap.forEach(d => {
@@ -104,11 +177,22 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
     }
   }
 
-  const addToCart = (product: Product, delta: number = 1) => {
+  const addToCart = (product: Product, delta: number = 1): boolean => {
     setError('');
     const existingIndex = cart.findIndex(item => item.productId === product.id);
     const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
     const requestedQty = currentQtyInCart + delta;
+
+    // Check available stock
+    const allowNegative = businessConfig?.allowNegativeStock ?? false;
+    if (delta > 0 && !allowNegative) {
+      if (product.currentStock !== undefined && requestedQty > product.currentStock) {
+        const msg = `Insufficient Stock: Only ${product.currentStock} ${product.unitType || 'unit'}(s) available for "${product.name}". Cannot add more.`;
+        setError(msg);
+        posAudio.playError();
+        return false;
+      }
+    }
 
     if (requestedQty <= 0) {
       if (existingIndex >= 0) {
@@ -116,7 +200,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
         newCart.splice(existingIndex, 1);
         setCart(newCart);
       }
-      return;
+      return true;
     }
 
     if (existingIndex >= 0) {
@@ -130,11 +214,82 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
         {
           productId: product.id,
           productName: product.name,
+          barcode: product.barcode,
           quantity: 1,
           unitPrice: product.sellingPrice,
           totalAmount: product.sellingPrice
         }
       ]);
+    }
+    return true;
+  };
+
+  /**
+   * Core barcode scanner processor:
+   * Handles USB / Bluetooth / Camera / Manual barcode entries.
+   */
+  const processBarcode = (rawBarcode: string) => {
+    const clean = String(rawBarcode ?? '').trim();
+    if (!clean) return;
+
+    // Reset input immediately for rapid successive scans
+    setBarcodeInput('');
+    if (barcodeInputRef.current) {
+      barcodeInputRef.current.value = '';
+      barcodeInputRef.current.focus();
+    }
+
+    // Search current tenant's products: match barcode first, or match exact ID
+    let found = products.find(p =>
+      p.barcode != null && String(p.barcode).trim().toLowerCase() === clean.toLowerCase()
+    );
+
+    if (!found) {
+      found = products.find(p => p.id.toLowerCase() === clean.toLowerCase());
+    }
+
+    if (found) {
+      // Stock check
+      const inCart = cart.find(item => item.productId === found!.id);
+      const currentInCart = inCart?.quantity || 0;
+      const allowNegative = businessConfig?.allowNegativeStock ?? false;
+
+      if (!allowNegative && (found.currentStock <= 0 || (found.currentStock - currentInCart <= 0))) {
+        posAudio.playError();
+        const msg = `Out of Stock: "${found.name}" has 0 units available. Negative stock sales are disabled in Settings.`;
+        setError(msg);
+        setScanFeedback({
+          type: 'error',
+          text: `Out of Stock: ${found.name}`,
+          sub: '0 units remaining — cannot sell'
+        });
+        setTimeout(() => setScanFeedback(null), 4000);
+        return;
+      }
+
+      // Add to cart / increment quantity
+      const added = addToCart(found, 1);
+      if (added) {
+        posAudio.playSuccess();
+        const newQty = currentInCart + 1;
+        setScanFeedback({
+          type: 'success',
+          text: `Added: ${found.name} (+1)`,
+          sub: `Price: ${formatCurrency(found.sellingPrice, currency)} | Cart Qty: ${newQty}`
+        });
+        setTimeout(() => setScanFeedback(null), 3500);
+      }
+    } else {
+      // Barcode not found
+      posAudio.playError();
+      setUnknownBarcode(clean);
+      setShowUnknownBarcodeModal(true);
+      setScanFeedback({
+        type: 'error',
+        text: `Barcode Not Found: "${clean}"`,
+        sub: 'Product not in current business catalog'
+      });
+      setTimeout(() => setScanFeedback(null), 4500);
     }
   };
 
@@ -232,6 +387,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
       const completedSale: Sale = {
         id: saleId,
+        businessId: tenantId,
         items: [...cart],
         totalAmount: totalCartAmount,
         paymentMethod,
@@ -247,10 +403,10 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       };
 
       // 1. Instantly persist locally & queue for sync (ensures 100% offline-first reliability)
-      saveSaleLocallyAndQueue(completedSale);
+      saveSaleLocallyAndQueue(completedSale, tenantId);
 
       // 2. Immediately update in-memory products state with deducted stock so UI reflects sold units
-      const updatedLocalProds = getLocalCachedProducts();
+      const updatedLocalProds = getLocalCachedProducts(tenantId);
       if (updatedLocalProds.length > 0) {
         setProducts(updatedLocalProds);
       }
@@ -273,7 +429,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       ).catch(() => {});
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        syncOfflineQueue().catch((syncErr) => {
+        syncOfflineQueue(tenantId).catch((syncErr) => {
           console.warn('Background sync deferred:', syncErr);
         });
       }
@@ -287,7 +443,11 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
   const filteredProducts = products.filter(p => {
     const matchesCat = selectedCategory === 'all' || p.categoryId === selectedCategory;
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q ||
+      p.name.toLowerCase().includes(q) ||
+      p.categoryName.toLowerCase().includes(q) ||
+      (p.barcode != null && String(p.barcode).toLowerCase().includes(q));
     return matchesCat && matchesSearch;
   });
 
@@ -318,6 +478,121 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
   return (
     <div className="space-y-4 pb-28 lg:pb-6">
+      {/* ================= PROMINENT BARCODE SCANNER TOP BAR ================= */}
+      <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-3 sm:p-4 text-white shadow-lg border border-slate-700">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          
+          {/* Left: Hardware Scanner Status */}
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-400">
+              <Barcode className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm font-bold text-white tracking-wide">Barcode Scanner</span>
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>USB / BT Ready</span>
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Auto-focused • Supports laser scanners, keyboard & camera
+              </p>
+            </div>
+          </div>
+
+          {/* Center: Prominent Barcode Search & Scan Input */}
+          <div className="flex-1 max-w-2xl relative">
+            <div className="relative flex items-center">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-amber-400">
+                <ScanLine className="w-5 h-5 animate-pulse" />
+              </div>
+              <input
+                ref={barcodeInputRef}
+                type="text"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processBarcode(barcodeInput);
+                  }
+                }}
+                placeholder="Scan barcode with handheld scanner or type barcode/SKU & hit Enter..."
+                className="w-full rounded-xl bg-slate-950/90 border-2 border-amber-500/80 focus:border-amber-400 py-2.5 sm:py-3 pl-11 pr-24 text-sm font-mono text-white placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500/20 transition-all shadow-inner"
+              />
+              <div className="absolute right-1.5 flex items-center space-x-1">
+                {barcodeInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBarcodeInput('');
+                      barcodeInputRef.current?.focus();
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 text-xs"
+                    title="Clear input"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => processBarcode(barcodeInput)}
+                  disabled={!barcodeInput.trim()}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-xs rounded-lg transition-all shadow-sm"
+                >
+                  Scan
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Camera Scanner Trigger */}
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowCameraScanner(true)}
+              className="flex-1 md:flex-initial px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-bold transition-all flex items-center justify-center space-x-2 shadow-sm"
+              title="Open camera to scan barcode"
+            >
+              <Camera className="w-4 h-4 text-amber-400" />
+              <span>Camera Scan</span>
+            </button>
+          </div>
+
+        </div>
+
+        {/* Real-time Scan Feedback Toast */}
+        {scanFeedback && (
+          <div
+            className={`mt-3 p-2.5 rounded-xl flex items-center justify-between transition-all ${
+              scanFeedback.type === 'success'
+                ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-200'
+                : 'bg-red-500/20 border border-red-500/50 text-red-200'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              {scanFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              )}
+              <div className="text-xs">
+                <span className="font-bold">{scanFeedback.text}</span>
+                {scanFeedback.sub && <span className="ml-2 opacity-80 font-normal">({scanFeedback.sub})</span>}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScanFeedback(null)}
+              className="text-slate-400 hover:text-white p-1 rounded"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Mobile Top Segment Switcher (Catalog vs Cart & Payment) */}
       <div className="lg:hidden flex rounded-2xl bg-slate-900 p-1.5 shadow-md sticky top-16 z-30">
         <button
@@ -421,9 +696,17 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600 mb-1">
-                          {product.categoryName}
-                        </span>
+                        <div className="flex items-center space-x-1 mb-1">
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
+                            {product.categoryName}
+                          </span>
+                          {product.barcode && (
+                            <span className="inline-flex items-center space-x-0.5 font-mono text-[9px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              <Barcode className="w-2.5 h-2.5 inline" />
+                              <span>{product.barcode}</span>
+                            </span>
+                          )}
+                        </div>
                         <h4 className="font-bold text-gray-900 text-base">{product.name}</h4>
                       </div>
                       <span className="text-sm font-extrabold text-amber-700">
@@ -530,7 +813,14 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                 cart.map((item) => (
                   <div key={item.productId} className="flex items-center justify-between p-2.5 rounded-2xl bg-gray-50 border border-gray-100">
                     <div className="flex-1 pr-2">
-                      <h5 className="font-semibold text-gray-900 text-xs sm:text-sm">{item.productName}</h5>
+                      <div className="flex items-center space-x-1.5">
+                        <h5 className="font-semibold text-gray-900 text-xs sm:text-sm">{item.productName}</h5>
+                        {item.barcode && (
+                          <span className="font-mono text-[9px] text-gray-500 bg-gray-200/80 px-1.5 py-0.5 rounded border border-gray-300">
+                            #{item.barcode}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-gray-500">{formatCurrency(item.unitPrice, currency)} each</p>
                     </div>
 
@@ -1005,6 +1295,29 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
           sale={successSale}
           businessConfig={businessConfig}
           onClose={() => setSuccessSale(null)}
+        />
+      )}
+
+      {/* Camera Barcode Scanner Modal */}
+      {showCameraScanner && (
+        <CameraBarcodeScanner
+          onScanSuccess={(scannedCode) => {
+            setShowCameraScanner(false);
+            processBarcode(scannedCode);
+          }}
+          onClose={() => setShowCameraScanner(false)}
+        />
+      )}
+
+      {/* Unknown Barcode Alert Modal */}
+      {showUnknownBarcodeModal && (
+        <UnknownBarcodeModal
+          barcode={unknownBarcode}
+          onClose={() => setShowUnknownBarcodeModal(false)}
+          onAddNewProduct={onNavigateToProducts ? () => {
+            setShowUnknownBarcodeModal(false);
+            onNavigateToProducts(unknownBarcode);
+          } : undefined}
         />
       )}
     </div>

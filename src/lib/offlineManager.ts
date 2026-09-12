@@ -81,9 +81,11 @@ if (typeof window !== 'undefined') {
 /**
  * Cache products and categories locally
  */
-export function cacheLocalProducts(products: Product[]) {
+export function cacheLocalProducts(products: Product[], tenantId?: string) {
   try {
-    localStorage.setItem('bar_pos_local_products', JSON.stringify(products));
+    const key = tenantId ? `bar_pos_local_products_${tenantId}` : 'bar_pos_local_products';
+    localStorage.setItem(key, JSON.stringify(products));
+    localStorage.setItem('bar_pos_local_products', JSON.stringify(products)); // backward compatibility
     localStorage.setItem('bar_pos_products_cache_date', new Date().toISOString());
   } catch (e) {
     console.warn('Failed to cache products locally:', e);
@@ -94,6 +96,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-tusker',
     name: 'Tusker Lager (500ml)',
+    barcode: '6161100010012',
     categoryId: 'cat-beer',
     categoryName: 'Beer',
     unitType: 'Bottle',
@@ -110,6 +113,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-whitecap',
     name: 'White Cap Lager',
+    barcode: '6161100010029',
     categoryId: 'cat-beer',
     categoryName: 'Beer',
     unitType: 'Bottle',
@@ -126,6 +130,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-guinness',
     name: 'Guinness Stout',
+    barcode: '6161100010036',
     categoryId: 'cat-beer',
     categoryName: 'Beer',
     unitType: 'Bottle',
@@ -142,6 +147,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-heineken',
     name: 'Heineken',
+    barcode: '8712000030018',
     categoryId: 'cat-beer',
     categoryName: 'Beer',
     unitType: 'Bottle',
@@ -158,6 +164,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-smirnoff',
     name: 'Smirnoff Vodka (750ml)',
+    barcode: '5000281010015',
     categoryId: 'cat-spirits',
     categoryName: 'Spirits',
     unitType: 'Bottle',
@@ -174,6 +181,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-chrome',
     name: 'Chrome Vodka (250ml)',
+    barcode: '6161100010067',
     categoryId: 'cat-spirits',
     categoryName: 'Spirits',
     unitType: 'Bottle',
@@ -190,6 +198,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-jw-black',
     name: 'Johnnie Walker Black Label',
+    barcode: '5000267014013',
     categoryId: 'cat-spirits',
     categoryName: 'Spirits',
     unitType: 'Bottle',
@@ -206,6 +215,7 @@ const DEFAULT_FALLBACK_PRODUCTS: Product[] = [
   {
     id: 'prod-coke',
     name: 'Coca Cola (Soda 300ml)',
+    barcode: '5449000000996',
     categoryId: 'cat-soft',
     categoryName: 'Soft Drinks',
     unitType: 'Bottle',
@@ -228,17 +238,21 @@ const DEFAULT_FALLBACK_CATEGORIES = [
   { id: 'cat-cider', name: 'Ciders' }
 ];
 
-export function getLocalCachedProducts(): Product[] {
+export function getLocalCachedProducts(tenantId?: string): Product[] {
   try {
-    const stored = JSON.parse(localStorage.getItem('bar_pos_local_products') || '[]');
+    const key = tenantId ? `bar_pos_local_products_${tenantId}` : 'bar_pos_local_products';
+    const stored = JSON.parse(localStorage.getItem(key) || localStorage.getItem('bar_pos_local_products') || '[]');
     if (Array.isArray(stored) && stored.length > 0) {
-      return stored;
+      return stored.map((p: any) => ({
+        ...p,
+        barcode: p.barcode != null ? String(p.barcode).trim() : undefined
+      }));
     }
   } catch (e) {
     // fallback
   }
   // Initialize with fallback products if cache is empty
-  cacheLocalProducts(DEFAULT_FALLBACK_PRODUCTS);
+  cacheLocalProducts(DEFAULT_FALLBACK_PRODUCTS, tenantId);
   return DEFAULT_FALLBACK_PRODUCTS;
 }
 
@@ -266,9 +280,9 @@ export function getLocalCachedCategories(): { id: string; name: string }[] {
 /**
  * Deduct stock locally immediately
  */
-export function deductLocalProductStock(items: { productId: string; quantity: number }[]) {
+export function deductLocalProductStock(items: { productId: string; quantity: number }[], tenantId?: string) {
   try {
-    const products = getLocalCachedProducts();
+    const products = getLocalCachedProducts(tenantId);
     for (const item of items) {
       if (item.productId.startsWith('custom-')) continue;
       const p = products.find(prod => prod.id === item.productId);
@@ -276,7 +290,7 @@ export function deductLocalProductStock(items: { productId: string; quantity: nu
         p.currentStock = Math.max(0, (p.currentStock || 0) - item.quantity);
       }
     }
-    localStorage.setItem('bar_pos_local_products', JSON.stringify(products));
+    cacheLocalProducts(products, tenantId);
   } catch (e) {
     console.error('Failed to deduct local product stock:', e);
   }
@@ -285,35 +299,43 @@ export function deductLocalProductStock(items: { productId: string; quantity: nu
 /**
  * Store sale locally and queue for sync
  */
-export function saveSaleLocallyAndQueue(sale: Sale) {
+export function saveSaleLocallyAndQueue(sale: Sale, tenantId?: string) {
+  const activeTenantId = tenantId || sale.businessId || DEFAULT_BUSINESS_ID;
+  const enrichedSale: Sale = {
+    ...sale,
+    businessId: activeTenantId
+  };
+
   // 1. Save to local sales history
   try {
-    const localSales: Sale[] = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+    const salesKey = tenantId ? `bar_pos_local_sales_${tenantId}` : 'bar_pos_local_sales';
+    const localSales: Sale[] = JSON.parse(localStorage.getItem(salesKey) || localStorage.getItem('bar_pos_local_sales') || '[]');
     // Avoid duplicate
-    const exists = localSales.some(s => s.id === sale.id);
+    const exists = localSales.some(s => s.id === enrichedSale.id);
     if (!exists) {
-      localSales.unshift(sale);
+      localSales.unshift(enrichedSale);
+      localStorage.setItem(salesKey, JSON.stringify(localSales));
       localStorage.setItem('bar_pos_local_sales', JSON.stringify(localSales));
     }
   } catch (e) {
-    console.error('Failed to write to bar_pos_local_sales:', e);
+    console.error('Failed to write to local sales cache:', e);
   }
 
   // 2. Queue for server sync
   const queue = getStoredPendingSales();
-  if (!queue.some(s => s.id === sale.id)) {
-    queue.push(sale);
+  if (!queue.some(s => s.id === enrichedSale.id)) {
+    queue.push(enrichedSale);
     savePendingSales(queue);
   }
 
   // 3. Deduct local stock
-  deductLocalProductStock(sale.items);
+  deductLocalProductStock(enrichedSale.items, activeTenantId);
 }
 
 /**
  * Synchronize all pending sales to Firestore
  */
-export async function syncOfflineQueue(): Promise<{ syncedCount: number; errors: number }> {
+export async function syncOfflineQueue(tenantId?: string): Promise<{ syncedCount: number; errors: number }> {
   if (isSyncing) {
     return { syncedCount: 0, errors: 0 };
   }
@@ -335,20 +357,40 @@ export async function syncOfflineQueue(): Promise<{ syncedCount: number; errors:
   const remainingQueue: Sale[] = [];
 
   for (const sale of queue) {
+    const activeTenantId = sale.businessId || DEFAULT_BUSINESS_ID;
     try {
       // 1. Upload sale document
-      const saleRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales', sale.id);
+      const saleRef = doc(db, 'businesses', activeTenantId, 'sales', sale.id);
       await setDoc(saleRef, sale, { merge: true });
 
-      // 2. Update stock in Firestore for inventory items
+      // 2. Update stock in Firestore for inventory items and record stock movement history
       for (const item of sale.items) {
         if (item.productId.startsWith('custom-')) continue;
         try {
-          const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', item.productId);
+          const prodRef = doc(db, 'businesses', activeTenantId, 'products', item.productId);
           await updateDoc(prodRef, {
             currentStock: increment(-item.quantity),
             updatedAt: new Date().toISOString()
           });
+
+          // 3. Log stock movement history in inventory integration
+          const movementId = `mov-${sale.id}-${item.productId}`;
+          const movementRef = doc(db, 'businesses', activeTenantId, 'stockMovements', movementId);
+          await setDoc(movementRef, {
+            id: movementId,
+            productId: item.productId,
+            productName: item.productName,
+            barcode: item.barcode || '',
+            previousStock: 0,
+            addedQty: -item.quantity,
+            newStock: 0,
+            date: sale.date,
+            time: sale.time,
+            adminId: sale.cashierId,
+            adminName: sale.cashierName,
+            reason: `POS Checkout #${sale.id.slice(-6)}${item.barcode ? ` [Barcode: ${item.barcode}]` : ''}`,
+            createdAt: sale.createdAt || Date.now()
+          }, { merge: true });
         } catch (stockErr) {
           console.warn(`Could not decrement stock online for ${item.productId}:`, stockErr);
         }

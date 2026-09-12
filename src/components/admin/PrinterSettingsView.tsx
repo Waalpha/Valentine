@@ -104,7 +104,8 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
       saveStoredFontSettings(fontSettings);
 
       // 2. Persist to Firestore business config
-      const bizRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID);
+      const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+      const bizRef = doc(db, 'businesses', tenantId);
       await setDoc(bizRef, { printerFontSettings: fontSettings }, { merge: true });
 
       await logAuditAction(

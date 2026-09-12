@@ -26,6 +26,7 @@ export interface BusinessConfig {
   receiptHeader?: string;
   receiptFooter?: string;
   printerFontSettings?: PrinterFontSettings;
+  allowNegativeStock?: boolean; // When false, POS blocks selling beyond currentStock
 }
 
 export interface Category {
@@ -37,6 +38,7 @@ export interface Category {
 export interface Product {
   id: string;
   name: string;
+  barcode?: string; // Code 128, EAN-13, UPC, etc. (unique within tenant)
   categoryId: string;
   categoryName: string;
   unitType: 'Bottle' | 'Can' | 'Glass' | 'Crate' | 'Piece' | 'Shot' | 'Packet';
@@ -47,6 +49,7 @@ export interface Product {
   stockAdded: number; // accumulated added stock during day
   minStockLevel: number;
   status: 'active' | 'inactive';
+  businessId?: string; // Tenant isolation key
   createdAt: string;
   updatedAt: string;
 }
@@ -54,6 +57,7 @@ export interface Product {
 export interface SaleItem {
   productId: string;
   productName: string;
+  barcode?: string;
   quantity: number;
   unitPrice: number;
   totalAmount: number;
@@ -72,6 +76,7 @@ export interface Sale {
   cashierId: string;
   cashierName: string;
   businessDayId: string;
+  businessId?: string; // Tenant isolation key
   date: string; // YYYY-MM-DD
   time: string; // HH:mm:ss
   createdAt: number; // timestamp millis

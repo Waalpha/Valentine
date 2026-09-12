@@ -11,6 +11,7 @@ interface StockViewProps {
 }
 
 export function StockView({ user, businessConfig }: StockViewProps) {
+  const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +30,7 @@ export function StockView({ user, businessConfig }: StockViewProps) {
   async function fetchStockAndMovements() {
     try {
       // Fetch products
-      const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
+      const prodRef = collection(db, 'businesses', tenantId, 'products');
       const prodSnap = await getDocs(prodRef);
       const prods: Product[] = [];
       prodSnap.forEach(d => {
@@ -41,7 +42,7 @@ export function StockView({ user, businessConfig }: StockViewProps) {
       }
 
       // Fetch stock movements
-      const movRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'stockMovements');
+      const movRef = collection(db, 'businesses', tenantId, 'stockMovements');
       const movSnap = await getDocs(movRef);
       const movs: StockMovement[] = [];
       movSnap.forEach(d => {
@@ -87,7 +88,7 @@ export function StockView({ user, businessConfig }: StockViewProps) {
       const movementId = 'mov-' + Date.now();
 
       // Update product currentStock and stockAdded
-      const prodRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'products', selectedProduct.id);
+      const prodRef = doc(db, 'businesses', tenantId, 'products', selectedProduct.id);
       await updateDoc(prodRef, {
         currentStock: newStock,
         stockAdded: totalAdded,
@@ -110,7 +111,7 @@ export function StockView({ user, businessConfig }: StockViewProps) {
         createdAt: now.getTime()
       };
 
-      const movRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID, 'stockMovements', movementId);
+      const movRef = doc(db, 'businesses', tenantId, 'stockMovements', movementId);
       await setDoc(movRef, movement);
 
       await logAuditAction(
@@ -180,7 +181,7 @@ export function StockView({ user, businessConfig }: StockViewProps) {
             >
               {products.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (Current: {p.currentStock})
+                  {p.name} {p.barcode ? `[#${p.barcode}]` : ''} (Current: {p.currentStock})
                 </option>
               ))}
             </select>

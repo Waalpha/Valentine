@@ -1,6 +1,6 @@
 {
   "name": "Bar POS & Stock Management System",
   "description": "Club Valentine Bar POS and Stock Management System for Pubs and Bars with Admin and Cashier roles, real-time inventory, sales tracking, and end-of-day closing.",
-  "requestFramePermissions": ["bluetooth", "usb"],
+  "requestFramePermissions": ["bluetooth", "usb", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
