@@ -215,7 +215,7 @@ export function printBarcodeContainer(
       const triggerPrint = () => {
         try {
           iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
+          const printed = iframe.contentWindow?.print();
           setTimeout(() => {
             try {
               document.body.removeChild(iframe);
@@ -225,8 +225,8 @@ export function printBarcodeContainer(
             resolve(true);
           }, 1000);
         } catch (err) {
-          console.warn('Iframe print failed, falling back to window.print():', err);
-          fallbackWindowPrint(resolve);
+          console.warn('Iframe print failed, falling back to popup print window:', err);
+          openBarcodePrintWindow(containerElement, options).then(resolve);
         }
       };
 
@@ -241,7 +241,114 @@ export function printBarcodeContainer(
         triggerPrint();
       }
     } catch (e) {
-      console.warn('Could not use iframe printing, attempting fallback window print:', e);
+      console.warn('Could not use iframe printing, attempting popup window print:', e);
+      openBarcodePrintWindow(containerElement, options).then(resolve);
+    }
+  });
+}
+
+/**
+ * Fallback to open a dedicated print window.
+ * This completely bypasses iframe sandboxing and ensures Chrome/Edge sees all system printers.
+ */
+export function openBarcodePrintWindow(
+  containerElement: HTMLElement,
+  options: PrintLabelsOptions = {}
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const layout = options.layout || 'sheet';
+      const title = options.title || 'Print Barcode Labels';
+      const clonedContainer = containerElement.cloneNode(true) as HTMLElement;
+
+      const svgs = clonedContainer.querySelectorAll('svg');
+      svgs.forEach((svg) => {
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.setAttribute('shape-rendering', 'crispEdges');
+        svg.style.display = 'block';
+        svg.style.margin = '0 auto';
+      });
+
+      let pageCss = '';
+      let gridCss = '';
+
+      if (layout === 'roll58') {
+        pageCss = `
+          @page { size: 58mm auto; margin: 1mm 2mm; }
+          body { width: 54mm; max-width: 54mm; margin: 0 auto; padding: 1mm 0; }
+        `;
+        gridCss = `display: flex; flex-direction: column; align-items: center; gap: 4mm; width: 100%;`;
+      } else if (layout === 'roll80') {
+        pageCss = `
+          @page { size: 80mm auto; margin: 2mm 3mm; }
+          body { width: 74mm; max-width: 74mm; margin: 0 auto; padding: 2mm 0; }
+        `;
+        gridCss = `display: flex; flex-direction: column; align-items: center; gap: 5mm; width: 100%;`;
+      } else {
+        pageCss = `
+          @page { size: A4 portrait; margin: 8mm 6mm; }
+          body { margin: 0; padding: 0; background: #ffffff; }
+        `;
+        const cols = options.columns || 3;
+        gridCss = `display: grid; grid-template-columns: repeat(${cols}, minmax(0, 1fr)); gap: 3.5mm; width: 100%;`;
+      }
+
+      const win = window.open('', '_blank', 'width=800,height=900');
+      if (!win) {
+        // Popups might be blocked, fallback to window.print
+        fallbackWindowPrint(resolve);
+        return;
+      }
+
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${title}</title>
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              ${pageCss}
+              body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000; background: #fff; }
+              .print-grid { ${gridCss} }
+              .barcode-label-card { background: #fff !important; border: 1px dashed #666 !important; border-radius: 4px !important; padding: 6px 4px !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: space-between !important; }
+              .business-name { font-size: 8px !important; font-weight: 900 !important; text-transform: uppercase !important; color: #333 !important; margin-bottom: 2px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+              .product-name { font-size: 10px !important; font-weight: 700 !important; color: #000 !important; margin-bottom: 2px !important; line-height: 1.2 !important; }
+              .barcode-wrapper { display: flex !important; justify-content: center !important; margin: 2px 0 !important; }
+              .price-tag { font-size: 11px !important; font-weight: 900 !important; color: #000 !important; margin-top: 2px !important; }
+              .price-tag .curr { font-size: 9px !important; font-weight: 600 !important; color: #444 !important; margin-right: 2px !important; }
+              @media screen {
+                .screen-banner { background: #1e293b; color: white; padding: 12px; text-align: center; font-size: 14px; margin-bottom: 16px; border-radius: 8px; font-family: sans-serif; }
+                .screen-banner button { background: #f59e0b; color: #0f172a; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-left: 12px; }
+              }
+              @media print {
+                .screen-banner { display: none !important; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="screen-banner">
+              <span>Ready to print labels</span>
+              <button onclick="window.print()">Open Print Dialog</button>
+            </div>
+            <div class="print-grid">
+              ${clonedContainer.innerHTML}
+            </div>
+          </body>
+        </html>
+      `);
+      win.document.close();
+      win.focus();
+      setTimeout(() => {
+        try {
+          win.print();
+        } catch (e) {
+          console.warn('Window print trigger failed:', e);
+        }
+        resolve(true);
+      }, 500);
+    } catch (e) {
+      console.warn('Popup window print failed, falling back to window.print:', e);
       fallbackWindowPrint(resolve);
     }
   });

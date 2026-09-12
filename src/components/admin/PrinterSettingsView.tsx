@@ -39,8 +39,36 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     return businessConfig?.printerFontSettings || getStoredFontSettings();
   });
 
+  React.useEffect(() => {
+    const unsub = thermalPrinterService.subscribe((s) => {
+      setState(s);
+    });
+    // Try auto connecting on mount
+    thermalPrinterService.autoConnect().catch(() => {});
+    return () => unsub();
+  }, []);
+
   const refreshState = () => {
     setState(thermalPrinterService.getState());
+  };
+
+  const handleAutoDetect = async () => {
+    setLoading(true);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const dev = await thermalPrinterService.autoConnect();
+      if (dev) {
+        setActionMessage(`Auto-connected to paired printer: ${dev.name}!`);
+      } else {
+        setActionMessage('No previously paired printer found. Click "Pair Printer" below to select your printer.');
+      }
+      refreshState();
+    } catch (err: any) {
+      setError(err.message || 'Auto-detect failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePair = async () => {
@@ -54,7 +82,9 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
       setActionMessage(`Successfully connected to ${device.name}!`);
       refreshState();
     } catch (err: any) {
-      setError(err.message || 'Failed to pair or connect printer');
+      if (err?.name !== 'NotFoundError') {
+        setError(err.message || 'Failed to pair or connect printer');
+      }
       refreshState();
     } finally {
       setLoading(false);
@@ -66,12 +96,41 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     setError(null);
     setActionMessage(null);
     try {
-      setActionMessage('Sending test print with your typography settings...');
+      setActionMessage('Sending test receipt...');
       await thermalPrinterService.testPrint(businessConfig, fontSettings);
-      setActionMessage('Test print sent successfully!');
+      setActionMessage('Test receipt sent successfully!');
       refreshState();
     } catch (err: any) {
       setError(err.message || 'Test print failed');
+      refreshState();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestBarcodePrint = async () => {
+    setLoading(true);
+    setError(null);
+    setActionMessage(null);
+    try {
+      setActionMessage('Printing sample barcode label...');
+      const sampleProduct = {
+        id: 'sample-001',
+        name: 'Test Product 500ml',
+        sellingPrice: 250,
+        barcode: '6161101234567',
+        categoryName: 'Drinks'
+      } as any;
+      await thermalPrinterService.printBarcodeLabels(sampleProduct, 1, {
+        showPrice: true,
+        showBusinessName: true,
+        businessName: businessConfig?.name || 'Club Valentine Bar POS',
+        currency: businessConfig?.currency || 'KSh'
+      });
+      setActionMessage('Test barcode label printed successfully!');
+      refreshState();
+    } catch (err: any) {
+      setError(err.message || 'Barcode test print failed');
       refreshState();
     } finally {
       setLoading(false);
@@ -458,12 +517,35 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
 
               <button
                 type="button"
+                onClick={handleAutoDetect}
+                disabled={loading}
+                className="flex items-center space-x-2 rounded-2xl bg-white hover:bg-gray-50 border border-gray-300 px-4 py-2.5 text-xs sm:text-sm font-bold text-gray-700 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                title="Search for previously paired USB/Bluetooth printers"
+              >
+                <RefreshCw className={`w-4 h-4 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
+                <span>Detect Paired</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleTestPrint}
                 disabled={loading || state.status !== 'connected'}
                 className="flex items-center space-x-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Print test receipt to verify text and formatting"
               >
                 <Printer className="w-4 h-4" />
-                <span>Test Print Receipt</span>
+                <span>Test Receipt</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestBarcodePrint}
+                disabled={loading || state.status !== 'connected'}
+                className="flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Print a test barcode label on thermal roll"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Test Barcode</span>
               </button>
             </div>
           </div>

@@ -8,6 +8,22 @@ export class UsbPrinterDriver {
     return typeof navigator !== 'undefined' && 'usb' in navigator;
   }
 
+  public async getPairedDevices(): Promise<PrinterDevice[]> {
+    if (!await this.isSupported()) return [];
+    try {
+      const devices = await navigator.usb!.getDevices();
+      return devices.map(d => ({
+        id: d.serialNumber || `usb-${d.vendorId}-${d.productId}`,
+        name: d.productName || `USB Thermal Printer (0x${d.vendorId.toString(16)}:0x${d.productId.toString(16)})`,
+        type: 'usb' as const,
+        rawDevice: d
+      }));
+    } catch (err) {
+      console.warn('Failed to retrieve paired USB devices:', err);
+      return [];
+    }
+  }
+
   public async requestDevice(): Promise<PrinterDevice> {
     if (!await this.isSupported()) {
       throw new Error('WebUSB is not supported in this browser. Please use Chrome or Edge.');

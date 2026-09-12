@@ -1,4 +1,4 @@
-import { Sale, BusinessConfig } from '../types';
+import { Sale, Product, BusinessConfig } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { PrinterFontSettings, getStoredFontSettings } from './printerTypes';
 
@@ -119,25 +119,45 @@ export class EscPosFormatter {
     this.addLine(char.repeat(32)); // 32 chars width for 58mm thermal paper
   }
 
-  public addBarcode(data: string): void {
+  public addBarcode(data: string, height = 55): void {
     const clean = String(data || '').trim();
     if (!clean) return;
 
     // Center alignment
     this.setAlignment('center');
-    // Set barcode height (50 dots)
-    this.addBytes([0x1d, 0x68, 50]);
+    // Set barcode height
+    this.addBytes([0x1d, 0x68, Math.min(255, Math.max(20, height))]);
     // Set barcode width module (2 dots)
     this.addBytes([0x1d, 0x77, 2]);
-    // Set HRI characters position below barcode
+    // Set HRI characters position: 2 = below barcode
     this.addBytes([0x1d, 0x48, 2]);
-    // Set HRI font B
+    // Set HRI font: 1 = Font B (clean condensed)
     this.addBytes([0x1d, 0x66, 1]);
 
-    // CODE128 command in ESC/POS: GS k 73 [len] [bytes]
-    const codeBytes = new TextEncoder().encode(clean);
-    this.addBytes([0x1d, 0x6b, 73, codeBytes.length]);
-    this.addBytes(Array.from(codeBytes));
+    // If data is 12 or 13 numeric digits, use standard EAN-13 (GS k 67)
+    if (/^\d{12,13}$/.test(clean)) {
+      let eanDigits = clean;
+      if (eanDigits.length === 12) {
+        let sum = 0;
+        for (let i = 0; i < 12; i++) {
+          const d = parseInt(eanDigits[i], 10) || 0;
+          sum += (i % 2 === 0) ? d : d * 3;
+        }
+        const rem = sum % 10;
+        const check = rem === 0 ? 0 : 10 - rem;
+        eanDigits += String(check);
+      }
+      const eanBytes = Array.from(new TextEncoder().encode(eanDigits.slice(0, 13)));
+      this.addBytes([0x1d, 0x6b, 67, 13, ...eanBytes]);
+      this.addString('\n');
+      return;
+    }
+
+    // Standard CODE128 (GS k 73 [len] [bytes])
+    // Standard CODE128 in ESC/POS requires Code Set B prefix: 0x7B 0x42 ('{B')
+    const rawBytes = Array.from(new TextEncoder().encode(clean));
+    const code128Payload = [0x7b, 0x42, ...rawBytes];
+    this.addBytes([0x1d, 0x6b, 73, code128Payload.length, ...code128Payload]);
     this.addString('\n');
   }
 
@@ -261,6 +281,117 @@ export class EscPosFormatter {
     formatter.setAlignment('center');
     formatter.addBarcode('TEST123456');
     formatter.addLine('58mm Thermal Receipt OK');
+    formatter.cut();
+    return formatter.getData();
+  }
+
+  public static formatBarcodeLabels(
+    product: Product,
+    copies: number = 1,
+    options: {
+      showPrice?: boolean;
+      showBusinessName?: boolean;
+      businessName?: string;
+      currency?: string;
+    } = {}
+  ): Uint8Array {
+    const formatter = new EscPosFormatter();
+    const barcodeValue = product.barcode && String(product.barcode).trim()
+      ? String(product.barcode).trim()
+      : `28${product.id.replace(/\D/g, '').slice(-8) || '10000001'}`;
+    const businessName = options.businessName || 'CLUB VALENTINE';
+    const currency = options.currency || 'KSh';
+    const showPrice = options.showPrice !== false;
+    const showBusinessName = options.showBusinessName !== false;
+
+    const count = Math.max(1, Math.min(copies, 100));
+
+    for (let i = 0; i < count; i++) {
+      formatter.setAlignment('center');
+
+      if (showBusinessName) {
+        formatter.setFont('B');
+        formatter.addLine(businessName.toUpperCase());
+        formatter.setFont('A');
+      }
+
+      formatter.setBold(true);
+      formatter.addLine(product.name.slice(0, 24));
+      formatter.setBold(false);
+
+      // Print barcode
+      formatter.addBarcode(barcodeValue, 48);
+
+      if (showPrice) {
+        formatter.setBold(true);
+        formatter.addLine(`${currency} ${product.sellingPrice.toLocaleString()}`);
+        formatter.setBold(false);
+      }
+
+      if (i < count - 1) {
+        formatter.addSeparator('-');
+      } else {
+        formatter.addLine('');
+      }
+    }
+
+    formatter.cut();
+    return formatter.getData();
+  }
+
+  public static formatCatalogBarcodeLabels(
+    items: Array<{ product: Product; copies: number }>,
+    options: {
+      showPrice?: boolean;
+      showBusinessName?: boolean;
+      businessName?: string;
+      currency?: string;
+    } = {}
+  ): Uint8Array {
+    const formatter = new EscPosFormatter();
+    const businessName = options.businessName || 'CLUB VALENTINE';
+    const currency = options.currency || 'KSh';
+    const showPrice = options.showPrice !== false;
+    const showBusinessName = options.showBusinessName !== false;
+
+    let isFirst = true;
+
+    for (const item of items) {
+      const prod = item.product;
+      const barcodeValue = prod.barcode && String(prod.barcode).trim()
+        ? String(prod.barcode).trim()
+        : `28${prod.id.replace(/\D/g, '').slice(-8) || '10000001'}`;
+      const copies = Math.max(1, item.copies || 1);
+
+      for (let i = 0; i < copies; i++) {
+        if (!isFirst) {
+          formatter.addSeparator('-');
+        }
+        isFirst = false;
+
+        formatter.setAlignment('center');
+
+        if (showBusinessName) {
+          formatter.setFont('B');
+          formatter.addLine(businessName.toUpperCase());
+          formatter.setFont('A');
+        }
+
+        formatter.setBold(true);
+        formatter.addLine(prod.name.slice(0, 24));
+        formatter.setBold(false);
+
+        // Barcode
+        formatter.addBarcode(barcodeValue, 48);
+
+        if (showPrice) {
+          formatter.setBold(true);
+          formatter.addLine(`${currency} ${prod.sellingPrice.toLocaleString()}`);
+          formatter.setBold(false);
+        }
+      }
+    }
+
     formatter.cut();
     return formatter.getData();
   }

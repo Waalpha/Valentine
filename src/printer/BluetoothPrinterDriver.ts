@@ -8,6 +8,24 @@ export class BluetoothPrinterDriver {
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
   }
 
+  public async getPairedDevices(): Promise<PrinterDevice[]> {
+    if (!await this.isSupported()) return [];
+    try {
+      if ('getDevices' in navigator.bluetooth!) {
+        const devices = await (navigator.bluetooth as any).getDevices();
+        return (devices || []).map((d: any) => ({
+          id: d.id,
+          name: d.name || 'Bluetooth Thermal Printer',
+          type: 'bluetooth' as const,
+          rawDevice: d
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to retrieve paired Bluetooth devices:', err);
+    }
+    return [];
+  }
+
   public async requestDevice(): Promise<PrinterDevice> {
     if (!await this.isSupported()) {
       throw new Error('Web Bluetooth is not supported in this browser or environment.');
