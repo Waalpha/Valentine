@@ -40,6 +40,12 @@ export class EscPosFormatter {
     }
   }
 
+  public addBytes(bytes: number[]): void {
+    for (let i = 0; i < bytes.length; i++) {
+      this.buffer.push(bytes[i]);
+    }
+  }
+
   public addLine(text = ''): void {
     this.addString(text + '\n');
   }
@@ -111,6 +117,28 @@ export class EscPosFormatter {
 
   public addSeparator(char = '-'): void {
     this.addLine(char.repeat(32)); // 32 chars width for 58mm thermal paper
+  }
+
+  public addBarcode(data: string): void {
+    const clean = String(data || '').trim();
+    if (!clean) return;
+
+    // Center alignment
+    this.setAlignment('center');
+    // Set barcode height (50 dots)
+    this.addBytes([0x1d, 0x68, 50]);
+    // Set barcode width module (2 dots)
+    this.addBytes([0x1d, 0x77, 2]);
+    // Set HRI characters position below barcode
+    this.addBytes([0x1d, 0x48, 2]);
+    // Set HRI font B
+    this.addBytes([0x1d, 0x66, 1]);
+
+    // CODE128 command in ESC/POS: GS k 73 [len] [bytes]
+    const codeBytes = new TextEncoder().encode(clean);
+    this.addBytes([0x1d, 0x6b, 73, codeBytes.length]);
+    this.addBytes(Array.from(codeBytes));
+    this.addString('\n');
   }
 
   public cut(): void {
@@ -191,6 +219,10 @@ export class EscPosFormatter {
     }
 
     formatter.addSeparator('=');
+    // Receipt Barcode
+    const receiptBarcode = sale.id.replace(/\D/g, '').slice(-12) || sale.id.slice(-8).toUpperCase();
+    formatter.addBarcode(receiptBarcode);
+
     formatter.setAlignment('center');
     formatter.addLine(footer);
     formatter.addLine(`Printed: ${new Date().toLocaleTimeString()}`);
@@ -227,6 +259,7 @@ export class EscPosFormatter {
     formatter.addLine(`Italic:     ${settings.italic ? 'YES' : 'NO'}`);
     formatter.addSeparator('=');
     formatter.setAlignment('center');
+    formatter.addBarcode('TEST123456');
     formatter.addLine('58mm Thermal Receipt OK');
     formatter.cut();
     return formatter.getData();

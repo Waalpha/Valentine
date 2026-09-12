@@ -95,8 +95,13 @@ export const BarcodeSvg: React.FC<BarcodeSvgProps> = ({
   }
 
   return (
-    <div className={`inline-block overflow-hidden rounded bg-white ${className}`}>
-      <svg ref={svgRef} className="max-w-full h-auto" />
+    <div className={`inline-flex items-center justify-center overflow-hidden bg-white ${className}`}>
+      <svg
+        ref={svgRef}
+        xmlns="http://www.w3.org/2000/svg"
+        className="max-w-full h-auto block"
+        style={{ shapeRendering: 'crispEdges' }}
+      />
     </div>
   );
 };

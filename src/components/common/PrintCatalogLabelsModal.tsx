@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Product, BusinessConfig } from '../../types';
 import { BarcodeSvg } from './BarcodeSvg';
 import { formatCurrency } from '../../lib/utils';
-import { X, Printer, Search, CheckSquare, Square, Filter } from 'lucide-react';
+import { X, Printer, Search, CheckSquare, Square, Filter, Layers, ScrollText } from 'lucide-react';
+import { printBarcodeContainer } from '../../lib/barcodePrintService';
 
 interface PrintCatalogLabelsModalProps {
   isOpen: boolean;
@@ -26,12 +27,16 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
   const [showPrice, setShowPrice] = useState<boolean>(true);
   const [showBusinessName, setShowBusinessName] = useState<boolean>(true);
   const [labelSize, setLabelSize] = useState<'standard' | 'compact' | 'jewelry'>('standard');
+  const [layout, setLayout] = useState<'sheet' | 'roll58' | 'roll80'>('sheet');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+
+  const printContainerRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen) return null;
 
   const currency = businessConfig?.currency || 'KSh';
-  const businessName = businessConfig?.name || 'Davetech ERP';
+  const businessName = businessConfig?.name || 'Club Valentine Bar POS';
 
   const toggleSelectAll = () => {
     if (selectedProductIds.size === validProducts.length) {
@@ -48,8 +53,25 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
     setSelectedProductIds(next);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (!printContainerRef.current) {
+      window.print();
+      return;
+    }
+    setIsPrinting(true);
+    try {
+      await printBarcodeContainer(printContainerRef.current, {
+        title: `Catalog Barcode Labels (${displayItems.length} Products)`,
+        layout,
+        labelSize,
+        columns: layout === 'sheet' ? 3 : 1
+      });
+    } catch (err) {
+      console.warn('Iframe print error, attempting direct window.print:', err);
+      window.print();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   // Filtered items to display
@@ -68,7 +90,7 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
   const totalLabelsToPrint = displayItems.length * copiesPerProduct;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:static">
       <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto border border-gray-200 print:border-none print:shadow-none print:rounded-none print:m-0 print:p-0">
         
         {/* Header - Screen only */}
@@ -78,9 +100,14 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
               <Printer className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Print Catalog Barcode Labels</h3>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Print Catalog Barcode Labels
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 font-semibold border border-amber-500/30">
+                  {validProducts.length} Items Available
+                </span>
+              </h3>
               <p className="text-xs text-slate-300">
-                Print barcode sheets or thermal stickers for your products ({selectedProductIds.size} of {validProducts.length} selected)
+                Batch print barcodes for your entire product catalog or selected items
               </p>
             </div>
           </div>
@@ -94,59 +121,91 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
 
         {/* Controls - Screen only */}
         <div className="p-5 border-b border-gray-200 bg-gray-50 space-y-4 print:hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          {/* Printer / Paper Type Segmented Tabs */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+              Printer Paper Format:
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setLayout('sheet')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                  layout === 'sheet'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm font-black'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>A4 Sticker Sheet</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayout('roll58')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                  layout === 'roll58'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm font-black'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <ScrollText className="w-3.5 h-3.5" />
+                <span>58mm Roll</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayout('roll80')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                  layout === 'roll80'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm font-black'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <ScrollText className="w-3.5 h-3.5" />
+                <span>80mm Roll</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Copies per item */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                Copies per Product:
+                Copies Per Product:
               </label>
               <div className="flex items-center space-x-2">
                 <input
                   type="number"
                   min="1"
-                  max="50"
+                  max="20"
                   value={copiesPerProduct}
                   onChange={(e) => setCopiesPerProduct(Math.max(1, parseInt(e.target.value, 10) || 1))}
                   className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-bold text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
                 <div className="flex space-x-1">
-                  {[1, 2, 5].map((preset) => (
+                  {[1, 2, 4].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => setCopiesPerProduct(preset)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                         copiesPerProduct === preset
                           ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
                           : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
                       }`}
                     >
-                      {preset}
+                      {preset}×
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
+            {/* Display Options */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                Label Style:
+                Display Details:
               </label>
-              <select
-                value={labelSize}
-                onChange={(e) => setLabelSize(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-medium text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                <option value="standard">Standard Sticker (50mm × 30mm)</option>
-                <option value="compact">Compact Shelf Tag (40mm × 25mm)</option>
-                <option value="jewelry">Small Label (30mm × 20mm)</option>
-              </select>
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                Display Attributes:
-              </label>
-              <div className="flex items-center space-x-4 pt-2">
+              <div className="flex flex-col space-y-1.5 pt-1">
                 <label className="flex items-center space-x-2 text-xs text-gray-700 font-medium cursor-pointer">
                   <input
                     type="checkbox"
@@ -163,19 +222,35 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                     onChange={(e) => setShowBusinessName(e.target.checked)}
                     className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
                   />
-                  <span>Show Business Name</span>
+                  <span>Show Store Name</span>
                 </label>
               </div>
             </div>
+
+            {/* Label Size */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                Label Format:
+              </label>
+              <select
+                value={labelSize}
+                onChange={(e) => setLabelSize(e.target.value as any)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-medium text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+              >
+                <option value="standard">Standard Sticker (50mm × 30mm)</option>
+                <option value="compact">Compact Shelf Tag (40mm × 25mm)</option>
+                <option value="jewelry">Small Barcode (30mm × 20mm)</option>
+              </select>
+            </div>
           </div>
 
-          {/* Quick Selection Toolbar */}
-          <div className="pt-2 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center space-x-2">
+          {/* Product Selection Controls */}
+          <div className="pt-2 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                className="inline-flex items-center space-x-1.5 text-xs font-bold text-amber-700 hover:text-amber-800"
+                className="px-3 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-xs font-bold text-gray-700 flex items-center space-x-1.5 transition-colors cursor-pointer"
               >
                 {selectedProductIds.size === validProducts.length ? (
                   <CheckSquare className="w-4 h-4 text-amber-600" />
@@ -187,7 +262,7 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                 </span>
               </button>
               <span className="text-gray-300">|</span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-600">
                 Printing <strong>{totalLabelsToPrint}</strong> label{totalLabelsToPrint === 1 ? '' : 's'} ({displayItems.length} unique products)
               </span>
             </div>
@@ -214,8 +289,13 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
             </div>
           ) : (
             <div
+              ref={printContainerRef}
               id="printable-catalog-barcode-labels"
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 print:grid-cols-3 print:gap-2 print:p-2"
+              className={`printable-barcode-area ${
+                layout === 'sheet'
+                  ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 print:grid-cols-3 print:gap-2 print:p-2'
+                  : 'flex flex-col items-center gap-3 max-w-[58mm] mx-auto'
+              }`}
             >
               {displayItems.map((prod) => {
                 const barcodeStr = String(prod.barcode).trim();
@@ -224,23 +304,24 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                 return countArr.map((_, copyIdx) => (
                   <div
                     key={`${prod.id}-copy-${copyIdx}`}
-                    className="bg-white p-3 rounded-xl border border-gray-300 shadow-xs flex flex-col items-center justify-between text-center print:border-gray-400 print:shadow-none print:break-inside-avoid print:p-2"
+                    className="barcode-label-card bg-white p-3 rounded-xl border border-gray-300 shadow-xs flex flex-col items-center justify-between text-center print:border-gray-500 print:shadow-none print:break-inside-avoid print:p-2 w-full"
                     style={{
-                      minHeight: labelSize === 'compact' ? '95px' : labelSize === 'jewelry' ? '80px' : '115px'
+                      minHeight: labelSize === 'compact' ? '95px' : labelSize === 'jewelry' ? '80px' : '115px',
+                      maxWidth: layout !== 'sheet' ? '54mm' : undefined
                     }}
                   >
                     {showBusinessName && (
-                      <span className="text-[9px] uppercase font-black tracking-wider text-gray-500 leading-tight block truncate max-w-full">
+                      <span className="business-name text-[9px] uppercase font-black tracking-wider text-gray-600 leading-tight block truncate max-w-full">
                         {businessName}
                       </span>
                     )}
 
-                    <span className="text-[11px] font-bold text-gray-900 leading-tight line-clamp-1 mt-0.5" title={prod.name}>
+                    <span className="product-name text-[11px] font-bold text-gray-900 leading-tight line-clamp-1 mt-0.5" title={prod.name}>
                       {prod.name}
                     </span>
 
                     {/* Barcode */}
-                    <div className="my-1 flex justify-center w-full">
+                    <div className="barcode-wrapper my-1 flex justify-center w-full">
                       <BarcodeSvg
                         value={barcodeStr}
                         format={barcodeStr.length === 13 ? 'EAN13' : 'CODE128'}
@@ -252,9 +333,9 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                     </div>
 
                     {showPrice && (
-                      <div className="mt-0.5 font-black text-xs text-gray-900">
-                        <span className="text-[10px] font-bold text-gray-500 mr-0.5">{currency}</span>
-                        <span className="text-sm">{prod.sellingPrice.toLocaleString()}</span>
+                      <div className="price-tag mt-0.5 font-black text-xs text-gray-900">
+                        <span className="curr text-[10px] font-bold text-gray-500 mr-0.5">{currency}</span>
+                        <span>{prod.sellingPrice.toLocaleString()}</span>
                       </div>
                     )}
                   </div>
@@ -267,7 +348,7 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
         {/* Footer - Screen only */}
         <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between print:hidden">
           <p className="text-xs text-gray-500">
-            Compatible with standard A4 sticker paper and thermal label rolls.
+            Compatible with standard A4 sticker paper, laser/inkjet, and thermal roll label printers.
           </p>
           <div className="flex space-x-2">
             <button
@@ -278,11 +359,11 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
             </button>
             <button
               onClick={handlePrint}
-              disabled={displayItems.length === 0}
+              disabled={displayItems.length === 0 || isPrinting}
               className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center space-x-1.5 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Print {totalLabelsToPrint} Labels</span>
+              <span>{isPrinting ? 'Preparing Print...' : `Print ${totalLabelsToPrint} Labels`}</span>
             </button>
           </div>
         </div>
