@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, BusinessConfig, Product, SaleItem, Sale, PaymentMethod } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
 import {
   Search,
@@ -46,6 +46,7 @@ interface RecordSaleViewProps {
 
 export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: RecordSaleViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+  const currency = businessConfig?.currency || 'KSh';
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -58,6 +59,7 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const [showUnknownBarcodeModal, setShowUnknownBarcodeModal] = useState(false);
   const [unknownBarcode, setUnknownBarcode] = useState('');
+  const [wasCameraOpenWhenScanned, setWasCameraOpenWhenScanned] = useState(false);
   const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error'; text: string; sub?: string } | null>(null);
   const scannerBufferRef = useRef<{ buffer: string; lastTime: number }>({ buffer: '', lastTime: 0 });
 
@@ -281,16 +283,199 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
         setTimeout(() => setScanFeedback(null), 3500);
       }
     } else {
-      // Barcode not found
+      // Barcode not found in current inventory: prompt cashier to set price!
+      const wasCamera = showCameraScanner;
+      if (showCameraScanner) {
+        setShowCameraScanner(false);
+      }
+      setWasCameraOpenWhenScanned(wasCamera);
       posAudio.playError();
       setUnknownBarcode(clean);
       setShowUnknownBarcodeModal(true);
       setScanFeedback({
         type: 'error',
-        text: `Barcode Not Found: "${clean}"`,
-        sub: 'Product not in current business catalog'
+        text: `Uncatalogued Product: "${clean}"`,
+        sub: 'Please enter price to add to cart'
       });
       setTimeout(() => setScanFeedback(null), 4500);
+    }
+  };
+
+  /**
+   * Cashier adds uncatalogued product to cart AND saves it permanently to inventory
+   */
+  const handleSaveAndAddToCart = async (params: {
+    name: string;
+    barcode: string;
+    sellingPrice: number;
+    buyingPrice?: number;
+    categoryId: string;
+    categoryName: string;
+    unitType: Product['unitType'];
+    openingStock: number;
+    quantity: number;
+    reopenCamera?: boolean;
+  }) => {
+    const cleanBarcode = params.barcode.trim();
+    const productId = 'prod-' + Date.now();
+    const now = new Date().toISOString();
+    const newProduct: Product = {
+      id: productId,
+      name: params.name.trim() || `Item #${cleanBarcode.slice(-4)}`,
+      barcode: cleanBarcode || undefined,
+      categoryId: params.categoryId || (categories[0] ? categories[0].id : 'cat-general'),
+      categoryName: params.categoryName || (categories[0] ? categories[0].name : 'General'),
+      unitType: params.unitType || 'Bottle',
+      buyingPrice: params.buyingPrice || Math.round(params.sellingPrice * 0.7),
+      sellingPrice: params.sellingPrice,
+      openingStock: params.openingStock || 50,
+      currentStock: params.openingStock || 50,
+      stockAdded: 0,
+      minStockLevel: 10,
+      status: 'active',
+      businessId: tenantId,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // 1. Immediately update in-memory products list & local cache
+    const updatedProducts = [newProduct, ...products];
+    setProducts(updatedProducts);
+    cacheLocalProducts(updatedProducts, tenantId);
+
+    // 2. Add to active cart with entered quantity
+    addToCart(newProduct, params.quantity);
+
+    // 3. Play high-frequency scanner beep
+    posAudio.playSuccessBeep();
+
+    setScanFeedback({
+      type: 'success',
+      text: `Added & Saved: ${newProduct.name} (+${params.quantity})`,
+      sub: `Price: ${formatCurrency(newProduct.sellingPrice, currency)} | Saved to inventory`
+    });
+    setTimeout(() => setScanFeedback(null), 3500);
+
+    // 4. Close modal
+    setShowUnknownBarcodeModal(false);
+
+    if (params.reopenCamera) {
+      setShowCameraScanner(true);
+    }
+
+    // 5. Persist to Firestore in background
+    try {
+      const prodRef = doc(db, 'businesses', tenantId, 'products', productId);
+      await setDoc(prodRef, newProduct);
+      await logAuditAction(
+        user.uid,
+        user.name,
+        'PRODUCT_CREATED_AT_POS',
+        `Added new uncatalogued product "${newProduct.name}" at POS for ${formatCurrency(newProduct.sellingPrice, currency)} (Barcode: ${cleanBarcode})`,
+        productId
+      );
+    } catch (e) {
+      console.warn('Could not save product to Firestore (stored locally):', e);
+    }
+  };
+
+  /**
+   * Cashier adds uncatalogued product to cart for one-time sale without saving to catalog
+   */
+  const handleQuickAddToCart = (params: {
+    name: string;
+    barcode: string;
+    price: number;
+    quantity: number;
+    reopenCamera?: boolean;
+  }) => {
+    const qty = params.quantity > 0 ? params.quantity : 1;
+    const price = params.price;
+    const cleanBarcode = params.barcode.trim();
+    const itemName = params.name.trim() || `Scanned Item #${cleanBarcode.slice(-4)}`;
+
+    const customItem: SaleItem = {
+      productId: 'custom-barcode-' + Date.now(),
+      productName: itemName,
+      barcode: cleanBarcode,
+      quantity: qty,
+      unitPrice: price,
+      totalAmount: qty * price
+    };
+
+    setCart(prev => [...prev, customItem]);
+    posAudio.playSuccessBeep();
+
+    setScanFeedback({
+      type: 'success',
+      text: `Added: ${itemName} (+${qty})`,
+      sub: `Price: ${formatCurrency(price, currency)} (Quick Item)`
+    });
+    setTimeout(() => setScanFeedback(null), 3500);
+
+    setShowUnknownBarcodeModal(false);
+
+    if (params.reopenCamera) {
+      setShowCameraScanner(true);
+    }
+  };
+
+  /**
+   * Cashier links scanned barcode to an existing inventory item
+   */
+  const handleLinkToExistingProduct = async (
+    existingProduct: Product,
+    updatedPrice?: number,
+    quantity: number = 1,
+    reopenCamera?: boolean
+  ) => {
+    const cleanBarcode = unknownBarcode.trim();
+    const now = new Date().toISOString();
+    const newPrice = updatedPrice && updatedPrice > 0 ? updatedPrice : existingProduct.sellingPrice;
+
+    const updatedProduct: Product = {
+      ...existingProduct,
+      barcode: cleanBarcode,
+      sellingPrice: newPrice,
+      updatedAt: now
+    };
+
+    const updatedProducts = products.map(p => p.id === existingProduct.id ? updatedProduct : p);
+    setProducts(updatedProducts);
+    cacheLocalProducts(updatedProducts, tenantId);
+
+    addToCart(updatedProduct, quantity);
+    posAudio.playSuccessBeep();
+
+    setScanFeedback({
+      type: 'success',
+      text: `Barcode Linked: ${updatedProduct.name}`,
+      sub: `Barcode ${cleanBarcode} saved at ${formatCurrency(newPrice, currency)}`
+    });
+    setTimeout(() => setScanFeedback(null), 3500);
+
+    setShowUnknownBarcodeModal(false);
+
+    if (reopenCamera) {
+      setShowCameraScanner(true);
+    }
+
+    try {
+      const prodRef = doc(db, 'businesses', tenantId, 'products', existingProduct.id);
+      await updateDoc(prodRef, {
+        barcode: cleanBarcode,
+        sellingPrice: newPrice,
+        updatedAt: now
+      });
+      await logAuditAction(
+        user.uid,
+        user.name,
+        'PRODUCT_BARCODE_LINKED',
+        `Linked barcode "${cleanBarcode}" to existing product "${updatedProduct.name}" at POS`,
+        existingProduct.id
+      );
+    } catch (e) {
+      console.warn('Could not update product barcode in Firestore:', e);
     }
   };
 
@@ -452,7 +637,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
     return matchesCat && matchesSearch;
   });
 
-  const currency = businessConfig?.currency || 'KSh';
   const cartItemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
   const parsedTendered = amountTendered ? (parseFloat(amountTendered) || 0) : totalCartAmount;
   const changeDue = Math.max(0, parsedTendered - totalCartAmount);
@@ -1334,18 +1518,31 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
           }}
           onClose={() => setShowCameraScanner(false)}
           cartCount={cart.reduce((s, i) => s + i.quantity, 0)}
-          cartTotal={cart.reduce((s, i) => s + i.subtotal, 0)}
-          currency={businessConfig?.currency || 'KSh'}
+          cartTotal={cart.reduce((s, i) => s + i.totalAmount, 0)}
+          currency={currency}
           allProducts={products}
         />
       )}
 
-      {/* Unknown Barcode Alert Modal */}
+      {/* Unknown Barcode / Add Price Modal */}
       {showUnknownBarcodeModal && (
         <UnknownBarcodeModal
+          isOpen={true}
           barcode={unknownBarcode}
-          onClose={() => setShowUnknownBarcodeModal(false)}
-          onAddNewProduct={onNavigateToProducts ? () => {
+          currency={currency}
+          categories={categories}
+          allProducts={products}
+          wasCameraOpen={wasCameraOpenWhenScanned}
+          onClose={() => {
+            setShowUnknownBarcodeModal(false);
+            if (wasCameraOpenWhenScanned) {
+              setShowCameraScanner(true);
+            }
+          }}
+          onSaveAndAddToCart={handleSaveAndAddToCart}
+          onQuickAddToCart={handleQuickAddToCart}
+          onLinkToExistingProduct={handleLinkToExistingProduct}
+          onNavigateToProducts={onNavigateToProducts ? () => {
             setShowUnknownBarcodeModal(false);
             onNavigateToProducts(unknownBarcode);
           } : undefined}

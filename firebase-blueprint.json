@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Product in the inventory catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "barcode": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "unitType": { "type": "string" },
+        "buyingPrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "openingStock": { "type": "number" },
+        "currentStock": { "type": "number" },
+        "stockAdded": { "type": "number" },
+        "minStockLevel": { "type": "number" },
+        "status": { "type": "string" },
+        "businessId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "sellingPrice"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Completed point of sale transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "amountTendered": { "type": "number" },
+        "change": { "type": "number" },
+        "cashierId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "businessDayId": { "type": "string" },
+        "businessId": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "items", "totalAmount", "paymentMethod", "cashierId"]
+    }
+  },
+  "firestore": {
+    "/businesses/{businessId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Business inventory product catalog"
+    },
+    "/businesses/{businessId}/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Point of sale completed receipts"
+    }
+  }
+}
