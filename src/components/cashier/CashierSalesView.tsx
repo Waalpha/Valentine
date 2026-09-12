@@ -3,7 +3,8 @@ import { UserProfile, BusinessConfig, Sale } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
-import { Receipt, Search, Calendar, DollarSign, User, ShoppingBag } from 'lucide-react';
+import { Receipt, Search, Calendar, DollarSign, User, ShoppingBag, Printer } from 'lucide-react';
+import { ReceiptModal } from '../common/ReceiptModal';
 
 interface CashierSalesViewProps {
   user: UserProfile;
@@ -14,6 +15,7 @@ export function CashierSalesView({ user, businessConfig }: CashierSalesViewProps
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSaleForReceipt, setSelectedSaleForReceipt] = useState<Sale | null>(null);
 
   useEffect(() => {
     fetchSales();
@@ -132,13 +134,40 @@ export function CashierSalesView({ user, businessConfig }: CashierSalesViewProps
                 </div>
               </div>
 
-              <div className="text-right border-t md:border-t-0 pt-3 md:pt-0 border-gray-100 flex md:flex-col justify-between items-center md:items-end">
-                <span className="text-xs text-gray-500">Total Amount</span>
-                <span className="text-xl font-black text-amber-700">{formatCurrency(sale.totalAmount, currency)}</span>
+              <div className="text-right border-t md:border-t-0 pt-3 md:pt-0 border-gray-100 flex md:flex-col justify-between items-center md:items-end gap-2">
+                <div>
+                  <span className="text-xs text-gray-500 block">Total Bill</span>
+                  <span className="text-xl font-black text-amber-700">{formatCurrency(sale.totalAmount, currency)}</span>
+                  {sale.paymentMethod === 'Cash' && sale.amountTendered && sale.amountTendered > sale.totalAmount && (
+                    <div className="text-[11px] text-gray-500 mt-0.5">
+                      <span>Paid: {formatCurrency(sale.amountTendered, currency)}</span>
+                      <span className="text-emerald-600 font-semibold ml-1">
+                        (Change: {formatCurrency(sale.change, currency)})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSaleForReceipt(sale)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Receipt</span>
+                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {selectedSaleForReceipt && (
+        <ReceiptModal
+          sale={selectedSaleForReceipt}
+          businessConfig={businessConfig}
+          onClose={() => setSelectedSaleForReceipt(null)}
+        />
       )}
     </div>
   );

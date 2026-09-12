@@ -1,3 +1,5 @@
+import type { PrinterFontSettings } from './printer/printerTypes';
+
 export type UserRole = 'admin' | 'cashier';
 
 export interface UserProfile {
@@ -23,6 +25,7 @@ export interface BusinessConfig {
   lowStockThreshold: number;
   receiptHeader?: string;
   receiptFooter?: string;
+  printerFontSettings?: PrinterFontSettings;
 }
 
 export interface Category {

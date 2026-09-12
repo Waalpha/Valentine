@@ -244,6 +244,7 @@ export default function App() {
         <PrinterSettingsView
           user={userProfile}
           businessConfig={businessConfig}
+          onConfigUpdated={(newCfg) => setBusinessConfig(newCfg)}
         />
       )}
       {adminTab === 'settings' && (

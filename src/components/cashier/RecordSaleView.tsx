@@ -43,6 +43,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
   // Payment states
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [amountTendered, setAmountTendered] = useState<string>('');
+  const [isCustomTendered, setIsCustomTendered] = useState<boolean>(false);
   const [referenceCode, setReferenceCode] = useState<string>('');
   const [mobileView, setMobileView] = useState<'catalog' | 'payment'>('catalog');
   
@@ -187,11 +188,19 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
   const totalCartAmount = cart.reduce((sum, item) => sum + item.totalAmount, 0);
 
-  // Auto-fill tendered amount with exact cart total if empty
+  // Keep amountTendered synchronized with totalCartAmount for Cash
   useEffect(() => {
-    if (paymentMethod === 'Cash' && (!amountTendered || amountTendered === '0')) {
-      if (totalCartAmount > 0) {
-        setAmountTendered(totalCartAmount.toString());
+    if (paymentMethod === 'Cash') {
+      const currentTendered = parseFloat(amountTendered) || 0;
+      // If the user hasn't explicitly entered a higher custom cash amount (or if current tendered is less than the total bill),
+      // keep it exactly equal to the total bill so it never lags behind (e.g. sticking at 300 when total is 1500).
+      if (!isCustomTendered || currentTendered < totalCartAmount || !amountTendered || amountTendered === '0') {
+        if (totalCartAmount > 0) {
+          setAmountTendered(totalCartAmount.toString());
+        } else {
+          setAmountTendered('');
+        }
+        setIsCustomTendered(false);
       }
     }
   }, [totalCartAmount, paymentMethod]);
@@ -202,11 +211,11 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       return;
     }
 
-    // Cash validation if custom amount was entered
-    if (paymentMethod === 'Cash' && amountTendered) {
-      const tenderedNum = parseFloat(amountTendered);
-      if (!isNaN(tenderedNum) && tenderedNum < totalCartAmount) {
-        setError(`Amount tendered (${formatCurrency(tenderedNum, currency)}) is less than total bill (${formatCurrency(totalCartAmount, currency)}).`);
+    // Cash validation: prevent underpayment / recording less than customer is supposed to pay
+    if (paymentMethod === 'Cash') {
+      const tenderedNum = amountTendered ? parseFloat(amountTendered) : totalCartAmount;
+      if (isNaN(tenderedNum) || tenderedNum < totalCartAmount) {
+        setError(`Cannot record sale: Amount received (${formatCurrency(isNaN(tenderedNum) ? 0 : tenderedNum, currency)}) is less than total bill (${formatCurrency(totalCartAmount, currency)}). Customer is supposed to pay ${formatCurrency(totalCartAmount, currency)}.`);
         return;
       }
     }
@@ -250,6 +259,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
       setSuccessSale(completedSale);
       setCart([]);
       setAmountTendered('');
+      setIsCustomTendered(false);
       setReferenceCode('');
       setMobileView('catalog');
 
@@ -283,9 +293,28 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
   const currency = businessConfig?.currency || 'KSh';
   const cartItemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
-  const parsedTendered = amountTendered ? parseFloat(amountTendered) : 0;
+  const parsedTendered = amountTendered ? (parseFloat(amountTendered) || 0) : totalCartAmount;
   const changeDue = Math.max(0, parsedTendered - totalCartAmount);
-  const balanceRemaining = Math.max(0, totalCartAmount - parsedTendered);
+  const isUnderpaid = paymentMethod === 'Cash' && totalCartAmount > 0 && parsedTendered < totalCartAmount;
+  const shortfall = Math.max(0, totalCartAmount - parsedTendered);
+
+  // Dynamic smart cash note presets based on total bill (avoids confusing notes smaller than bill)
+  const getSmartCashPresets = () => {
+    if (totalCartAmount <= 0) return [500, 1000, 2000];
+    const presets: number[] = [];
+    const denominations = [500, 1000, 1500, 2000, 3000, 4000, 5000, 10000];
+    for (const d of denominations) {
+      if (d > totalCartAmount && !presets.includes(d)) {
+        presets.push(d);
+        if (presets.length >= 3) break;
+      }
+    }
+    if (presets.length === 0) {
+      const nextRound = Math.ceil((totalCartAmount + 1) / 1000) * 1000;
+      presets.push(nextRound, nextRound + 1000);
+    }
+    return presets;
+  };
 
   return (
     <div className="space-y-4 pb-28 lg:pb-6">
@@ -576,6 +605,17 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
               </div>
             </div>
 
+            {/* Error Banner inside Payment Section (Always visible on mobile & desktop) */}
+            {error && (
+              <div className="flex items-start space-x-3 rounded-2xl bg-red-950/95 border-2 border-red-500 p-3.5 text-sm text-white shadow-lg">
+                <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold text-red-300 uppercase tracking-wide text-xs">Payment Alert</p>
+                  <p className="text-xs text-red-100">{error}</p>
+                </div>
+              </div>
+            )}
+
             {/* 1. Payment Method Buttons */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
@@ -596,8 +636,12 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                       type="button"
                       onClick={() => {
                         setPaymentMethod(m.id as PaymentMethod);
-                        if (m.id === 'Cash' && (!amountTendered || amountTendered === '0')) {
-                          setAmountTendered(totalCartAmount > 0 ? totalCartAmount.toString() : '');
+                        if (m.id === 'Cash') {
+                          const currentTendered = parseFloat(amountTendered) || 0;
+                          if (!isCustomTendered || currentTendered < totalCartAmount) {
+                            setAmountTendered(totalCartAmount > 0 ? totalCartAmount.toString() : '');
+                            setIsCustomTendered(false);
+                          }
                         }
                       }}
                       className={`flex flex-col items-center justify-center p-2 rounded-xl border text-xs font-bold transition-all ${
@@ -618,11 +662,21 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
             {paymentMethod === 'Cash' && (
               <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-2xl space-y-2.5">
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-amber-300">
-                      2. Enter Cash Received / Tendered:
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-amber-300 flex items-center space-x-1">
+                      <span>2. Cash Received from Customer:</span>
                     </label>
-                    <span className="text-[10px] text-slate-400">Put customer money</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmountTendered(totalCartAmount > 0 ? totalCartAmount.toString() : '');
+                        setIsCustomTendered(false);
+                        setError('');
+                      }}
+                      className="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                    >
+                      Set Exact Bill ({formatCurrency(totalCartAmount, currency)})
+                    </button>
                   </div>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 pl-3 flex items-center font-bold text-amber-400 text-sm">
@@ -633,15 +687,23 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                       min="0"
                       step="any"
                       value={amountTendered}
-                      onChange={(e) => setAmountTendered(e.target.value)}
+                      onChange={(e) => {
+                        setAmountTendered(e.target.value);
+                        setIsCustomTendered(true);
+                        setError('');
+                      }}
                       placeholder={totalCartAmount > 0 ? totalCartAmount.toString() : '0.00'}
                       className="w-full pl-13 pr-14 py-2.5 rounded-xl border-2 border-amber-500 bg-slate-900 text-xl font-black text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                     />
                     {amountTendered && (
                       <button
                         type="button"
-                        onClick={() => setAmountTendered('')}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs font-bold text-slate-400 hover:text-slate-200"
+                        onClick={() => {
+                          setAmountTendered('');
+                          setIsCustomTendered(true);
+                          setError('');
+                        }}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs font-bold text-slate-400 hover:text-slate-200 cursor-pointer"
                       >
                         Clear
                       </button>
@@ -650,65 +712,129 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                 </div>
 
                 {/* Quick Cash Presets */}
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   <button
                     type="button"
-                    onClick={() => setAmountTendered(totalCartAmount.toString())}
-                    className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-amber-600 text-white border border-slate-600"
+                    onClick={() => {
+                      setAmountTendered(totalCartAmount.toString());
+                      setIsCustomTendered(false);
+                      setError('');
+                    }}
+                    className={`text-[11px] font-black px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+                      parsedTendered === totalCartAmount && !isUnderpaid
+                        ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md ring-2 ring-amber-400/40 font-black'
+                        : 'bg-slate-700 hover:bg-slate-600 text-amber-300 border-slate-600'
+                    }`}
                   >
                     Exact ({formatCurrency(totalCartAmount, currency)})
                   </button>
-                  {[500, 1000, 2000].map(val => (
+                  {getSmartCashPresets().map(val => (
                     <button
                       key={val}
                       type="button"
-                      onClick={() => setAmountTendered(val.toString())}
-                      className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-amber-600 text-white border border-slate-600"
+                      onClick={() => {
+                        setAmountTendered(val.toString());
+                        setIsCustomTendered(true);
+                        setError('');
+                      }}
+                      className="text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white border border-slate-600 cursor-pointer"
                     >
-                      {val}
+                      {formatCurrency(val, currency)}
                     </button>
                   ))}
                   <button
                     type="button"
                     onClick={() => {
-                      const current = parseFloat(amountTendered) || 0;
+                      const current = parseFloat(amountTendered) || totalCartAmount;
                       setAmountTendered((current + 100).toString());
+                      setIsCustomTendered(true);
+                      setError('');
                     }}
-                    className="text-[11px] font-bold px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40"
+                    className="text-[11px] font-bold px-2 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40 cursor-pointer"
                   >
                     +100
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      const current = parseFloat(amountTendered) || 0;
+                      const current = parseFloat(amountTendered) || totalCartAmount;
                       setAmountTendered((current + 500).toString());
+                      setIsCustomTendered(true);
+                      setError('');
                     }}
-                    className="text-[11px] font-bold px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40"
+                    className="text-[11px] font-bold px-2 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40 cursor-pointer"
                   >
                     +500
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = parseFloat(amountTendered) || totalCartAmount;
+                      setAmountTendered((current + 1000).toString());
+                      setIsCustomTendered(true);
+                      setError('');
+                    }}
+                    className="text-[11px] font-bold px-2 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 border border-amber-500/40 cursor-pointer"
+                  >
+                    +1,000
+                  </button>
                 </div>
 
-                {/* Live Change Calculation */}
-                {amountTendered && parsedTendered >= totalCartAmount && (
+                {/* Underpayment Warning Banner */}
+                {isUnderpaid && (
+                  <div className="p-3 rounded-2xl bg-red-950/90 border-2 border-red-500 text-white space-y-2.5">
+                    <div className="flex items-start space-x-2">
+                      <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="font-black uppercase tracking-wide text-red-300 text-xs">
+                          Cannot Record Underpayment: Short by {formatCurrency(shortfall, currency)}
+                        </p>
+                        <p className="text-xs text-red-100">
+                          Customer owes <strong className="text-white font-bold">{formatCurrency(totalCartAmount, currency)}</strong>, but cash received entered is only <strong className="text-amber-300 font-bold">{formatCurrency(parsedTendered, currency)}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmountTendered(totalCartAmount.toString());
+                        setIsCustomTendered(false);
+                        setError('');
+                      }}
+                      className="w-full py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-98 text-slate-950 font-black text-xs uppercase tracking-wide shadow-md transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                      <span>Record Correct Full Bill ({formatCurrency(totalCartAmount, currency)})</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Exact Payment Confirmation */}
+                {!isUnderpaid && parsedTendered === totalCartAmount && totalCartAmount > 0 && (
                   <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/60 flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
-                      Change to Return:
-                    </span>
-                    <span className="text-lg font-black text-emerald-400">
-                      {formatCurrency(changeDue, currency)}
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-bold text-emerald-300">Exact Payment (Full Bill)</span>
+                    </div>
+                    <span className="text-sm font-black text-emerald-400">
+                      {formatCurrency(totalCartAmount, currency)} • No Change Needed
                     </span>
                   </div>
                 )}
 
-                {amountTendered && parsedTendered > 0 && parsedTendered < totalCartAmount && (
-                  <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-500/60 flex items-center justify-between">
-                    <span className="text-xs font-bold text-red-300 uppercase tracking-wide">
-                      Balance Remaining:
-                    </span>
-                    <span className="text-base font-black text-red-400">
-                      {formatCurrency(balanceRemaining, currency)}
+                {/* Overpayment Change Due */}
+                {!isUnderpaid && parsedTendered > totalCartAmount && (
+                  <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/60 flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold text-emerald-300 uppercase tracking-wide block">
+                        Change to Return to Customer:
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Received {formatCurrency(parsedTendered, currency)} - Bill {formatCurrency(totalCartAmount, currency)}
+                      </span>
+                    </div>
+                    <span className="text-xl font-black text-emerald-400">
+                      {formatCurrency(changeDue, currency)}
                     </span>
                   </div>
                 )}
@@ -751,13 +877,30 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
             {/* Complete Payment Button */}
             <button
               onClick={handleRecordSale}
-              disabled={loading || cart.length === 0}
-              className="w-full rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-[0.99] py-3.5 text-sm sm:text-base font-black text-slate-950 shadow-xl shadow-amber-500/20 transition-all disabled:opacity-50 uppercase tracking-wide flex items-center justify-center space-x-2 cursor-pointer"
+              disabled={loading || cart.length === 0 || isUnderpaid}
+              className={`w-full rounded-2xl py-3.5 text-sm sm:text-base font-black shadow-xl transition-all uppercase tracking-wide flex items-center justify-center space-x-2 ${
+                isUnderpaid
+                  ? 'bg-red-950 text-red-300 border-2 border-red-500/60 cursor-not-allowed opacity-90'
+                  : 'bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-slate-950 shadow-amber-500/20 cursor-pointer'
+              } disabled:opacity-50`}
             >
-              <CheckCircle2 className="w-5 h-5 text-slate-950" />
-              <span>
-                {loading ? 'Processing Transaction...' : `COMPLETE PAYMENT (${formatCurrency(totalCartAmount, currency)})`}
-              </span>
+              {isUnderpaid ? (
+                <>
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                  <span>CANNOT RECORD: SHORT BY {formatCurrency(shortfall, currency)}</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-slate-950" />
+                  <span>
+                    {loading
+                      ? 'Recording Transaction...'
+                      : parsedTendered > totalCartAmount
+                      ? `RECORD FULL SALE (${formatCurrency(totalCartAmount, currency)} • CHANGE: ${formatCurrency(changeDue, currency)})`
+                      : `RECORD FULL PAYMENT (${formatCurrency(totalCartAmount, currency)})`}
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </div>

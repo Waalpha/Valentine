@@ -1,4 +1,4 @@
-import { PrinterType, PrinterDevice, PrinterConnectionState } from './printerTypes';
+import { PrinterType, PrinterDevice, PrinterConnectionState, PrinterFontSettings } from './printerTypes';
 import { UsbPrinterDriver } from './UsbPrinterDriver';
 import { BluetoothPrinterDriver } from './BluetoothPrinterDriver';
 import { EscPosFormatter } from './EscPosFormatter';
@@ -69,12 +69,15 @@ export class ThermalPrinterService {
     }
   }
 
-  public async testPrint(businessConfig?: BusinessConfig | null): Promise<void> {
+  public async testPrint(
+    businessConfig?: BusinessConfig | null,
+    fontSettings?: PrinterFontSettings
+  ): Promise<void> {
     if (this.connectionStatus !== 'connected') {
       await this.connect();
     }
 
-    const data = EscPosFormatter.formatTestReceipt(businessConfig);
+    const data = EscPosFormatter.formatTestReceipt(businessConfig, fontSettings);
 
     if (this.activeType === 'usb') {
       await this.usbDriver.sendData(data);
@@ -83,12 +86,16 @@ export class ThermalPrinterService {
     }
   }
 
-  public async printSale(sale: Sale, businessConfig?: BusinessConfig | null): Promise<void> {
+  public async printSale(
+    sale: Sale,
+    businessConfig?: BusinessConfig | null,
+    fontSettings?: PrinterFontSettings
+  ): Promise<void> {
     if (this.connectionStatus !== 'connected') {
       await this.connect();
     }
 
-    const data = EscPosFormatter.formatSaleReceipt(sale, businessConfig);
+    const data = EscPosFormatter.formatSaleReceipt(sale, businessConfig, fontSettings);
 
     if (this.activeType === 'usb') {
       await this.usbDriver.sendData(data);
