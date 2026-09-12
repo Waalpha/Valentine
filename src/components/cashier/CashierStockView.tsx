@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { UserProfile, BusinessConfig, Product, Sale } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Package, Search, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Package, Search, AlertTriangle, CheckCircle, XCircle, Camera } from 'lucide-react';
 import { getLocalCachedProducts, cacheLocalProducts } from '../../lib/offlineManager';
+import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
 
 interface CashierStockViewProps {
   user: UserProfile;
@@ -16,6 +17,7 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
   const [soldMap, setSoldMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
 
   useEffect(() => {
     fetchStockData();
@@ -109,17 +111,28 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
           <h2 className="text-2xl font-bold text-gray-900">Bar Stock Status</h2>
           <p className="text-sm text-gray-500">Live inventory tracking for today's shift</p>
         </div>
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-            <Search className="w-4 h-4" />
+        <div className="flex items-center space-x-2">
+          <div className="relative flex-1 sm:w-72">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+              <Search className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search product or barcode..."
+              className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+            />
           </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search product inventory..."
-            className="w-full sm:w-72 rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
-          />
+          <button
+            type="button"
+            onClick={() => setShowCameraScanner(true)}
+            className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all flex items-center space-x-1.5 shrink-0 shadow-sm cursor-pointer border border-slate-700"
+            title="Scan product barcode with phone camera"
+          >
+            <Camera className="w-4 h-4 text-amber-400" />
+            <span className="hidden xs:inline">Camera</span>
+          </button>
         </div>
       </div>
 
@@ -192,6 +205,21 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
             </table>
           </div>
         </div>
+      )}
+
+      {/* Camera Barcode Scanner Modal for Stock Search */}
+      {showCameraScanner && (
+        <CameraBarcodeScanner
+          isOpen={true}
+          title="Scan Product to Check Stock"
+          onClose={() => setShowCameraScanner(false)}
+          onScan={(scannedCode) => {
+            setSearchQuery(scannedCode);
+            setShowCameraScanner(false);
+          }}
+          allProducts={products}
+          currency={businessConfig?.currency || 'KSh'}
+        />
       )}
     </div>
   );

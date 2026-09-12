@@ -1,5 +1,51 @@
 @import "tailwindcss";
 
+/* Barcode Camera Scanner Animations & Video Stream Styling */
+@keyframes laserSweep {
+  0% {
+    top: 5%;
+    opacity: 0.85;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+  }
+  100% {
+    top: 5%;
+    opacity: 0.85;
+  }
+}
+
+.scanner-laser-line {
+  animation: laserSweep 2s ease-in-out infinite;
+}
+
+#dvt-pos-camera-scanner-view {
+  position: relative;
+  width: 100% !important;
+  min-height: 280px !important;
+  background-color: #000;
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+
+#dvt-pos-camera-scanner-view video {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 280px;
+  max-height: 380px;
+  object-fit: cover !important;
+  border-radius: 1.25rem !important;
+}
+
+#dvt-pos-camera-scanner-view canvas {
+  display: none !important;
+}
+
+#dvt-pos-camera-scanner-view img[alt="Info icon"] {
+  display: none !important;
+}
+
 @media print {
   @page {
     size: 58mm auto;

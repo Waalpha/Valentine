@@ -22,7 +22,8 @@ import {
   ScanLine,
   Zap,
   Check,
-  RotateCcw
+  RotateCcw,
+  Volume2
 } from 'lucide-react';
 import { ReceiptModal } from '../common/ReceiptModal';
 import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
@@ -547,12 +548,35 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
             </div>
           </div>
 
-          {/* Right: Camera Scanner Trigger */}
+          {/* Right: Camera Scanner Trigger & High Frequency Beep Sound Test */}
           <div className="flex items-center space-x-2 shrink-0">
             <button
               type="button"
-              onClick={() => setShowCameraScanner(true)}
-              className="flex-1 md:flex-initial px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-bold transition-all flex items-center justify-center space-x-2 shadow-sm"
+              onClick={() => {
+                posAudio.unlock();
+                posAudio.testSupermarketBeep();
+                const hz = posAudio.getFrequency();
+                setScanFeedback({
+                  type: 'success',
+                  text: `High Frequency Beep (${hz} Hz)`,
+                  sub: 'Crisp supermarket register laser scan tone active'
+                });
+                setTimeout(() => setScanFeedback(null), 2500);
+              }}
+              className="px-3 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
+              title={`Test High Frequency Beep (${posAudio.getFrequency()} Hz) - Authentic supermarket laser scan`}
+            >
+              <Volume2 className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline font-mono">{posAudio.getFrequency()}Hz</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.unlock();
+                setShowCameraScanner(true);
+              }}
+              className="flex-1 md:flex-initial px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-bold transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
               title="Open camera to scan barcode"
             >
               <Camera className="w-4 h-4 text-amber-400" />
@@ -1301,11 +1325,18 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
       {/* Camera Barcode Scanner Modal */}
       {showCameraScanner && (
         <CameraBarcodeScanner
+          isOpen={true}
+          onScan={(scannedCode) => {
+            processBarcode(scannedCode);
+          }}
           onScanSuccess={(scannedCode) => {
-            setShowCameraScanner(false);
             processBarcode(scannedCode);
           }}
           onClose={() => setShowCameraScanner(false)}
+          cartCount={cart.reduce((s, i) => s + i.quantity, 0)}
+          cartTotal={cart.reduce((s, i) => s + i.subtotal, 0)}
+          currency={businessConfig?.currency || 'KSh'}
+          allProducts={products}
         />
       )}
 
