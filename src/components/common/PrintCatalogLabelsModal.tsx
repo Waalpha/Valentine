@@ -10,13 +10,17 @@ import {
   Square, 
   Filter, 
   Layers, 
-  ScrollText,
-  Zap,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink
+  ScrollText, 
+  Zap, 
+  CheckCircle2, 
+  AlertCircle, 
+  ExternalLink,
+  Laptop,
+  Cable,
+  HelpCircle,
+  Info
 } from 'lucide-react';
-import { printBarcodeContainer, openBarcodePrintWindow } from '../../lib/barcodePrintService';
+import { printBarcodeDirectly, isAppInsideIframe } from '../../lib/barcodePrintService';
 import { ThermalPrinterBar } from './ThermalPrinterBar';
 import { thermalPrinterService } from '../../printer/ThermalPrinterService';
 import { PrinterConnectionState } from '../../printer/printerTypes';
@@ -39,6 +43,7 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(
     () => new Set(validProducts.map(p => p.id))
   );
+  const [printMethod, setPrintMethod] = useState<'system' | 'direct'>('system');
   const [copiesPerProduct, setCopiesPerProduct] = useState<number>(1);
   const [showPrice, setShowPrice] = useState<boolean>(true);
   const [showBusinessName, setShowBusinessName] = useState<boolean>(true);
@@ -49,8 +54,10 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
   const [printerState, setPrinterState] = useState<PrinterConnectionState>(thermalPrinterService.getState());
   const [printSuccessMsg, setPrintSuccessMsg] = useState<string | null>(null);
   const [printErrorMsg, setPrintErrorMsg] = useState<string | null>(null);
+  const [showDriverHelp, setShowDriverHelp] = useState<boolean>(false);
 
   const printContainerRef = useRef<HTMLDivElement>(null);
+  const isInIframe = isAppInsideIframe();
 
   useEffect(() => {
     const unsub = thermalPrinterService.subscribe((s) => {
@@ -95,7 +102,36 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
   // Flat list multiplied by copies
   const totalLabelsToPrint = displayItems.length * copiesPerProduct;
 
-  // 1. Direct Hardware Thermal Print
+  // 1. Browser System Print (Installed OS Driver)
+  const handleSystemPrint = async () => {
+    if (displayItems.length === 0) return;
+    if (!printContainerRef.current) {
+      window.print();
+      return;
+    }
+    setIsPrinting(true);
+    setPrintErrorMsg(null);
+    setPrintSuccessMsg(null);
+    setShowDriverHelp(false);
+
+    try {
+      await printBarcodeDirectly(printContainerRef.current, {
+        title: `Catalog Barcode Labels (${displayItems.length} Products)`,
+        layout,
+        labelSize,
+        columns: layout === 'sheet' ? 3 : 1
+      });
+      setPrintSuccessMsg(`Print dialog opened! Select your thermal printer to print ${totalLabelsToPrint} labels.`);
+      setTimeout(() => setPrintSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.warn('In-DOM print error:', err);
+      setPrintErrorMsg(err.message || 'Could not open print dialog.');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // 2. Direct Hardware Thermal Print (WebUSB / Bluetooth)
   const handleDirectThermalPrint = async () => {
     if (displayItems.length === 0) return;
     setIsPrinting(true);
@@ -124,58 +160,28 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
       });
 
       const devName = thermalPrinterService.getState().device?.name || 'Thermal Printer';
-      setPrintSuccessMsg(`Printed ${totalLabelsToPrint} barcode labels for ${displayItems.length} products to ${devName}!`);
+      setPrintSuccessMsg(`Printed ${totalLabelsToPrint} barcode labels directly to ${devName}!`);
       setTimeout(() => setPrintSuccessMsg(null), 5000);
     } catch (err: any) {
       console.warn('Direct thermal print error:', err);
       if (err?.name !== 'NotFoundError') {
-        setPrintErrorMsg(err.message || 'Direct thermal print failed. Check printer connection.');
+        setPrintErrorMsg(err.message || 'Direct thermal print failed.');
+        setShowDriverHelp(true);
       }
     } finally {
       setIsPrinting(false);
     }
   };
 
-  // 2. Browser System Print
-  const handleSystemPrint = async () => {
-    if (!printContainerRef.current) {
-      window.print();
-      return;
-    }
-    setIsPrinting(true);
-    setPrintErrorMsg(null);
-    setPrintSuccessMsg(null);
-    try {
-      await printBarcodeContainer(printContainerRef.current, {
-        title: `Catalog Barcode Labels (${displayItems.length} Products)`,
-        layout,
-        labelSize,
-        columns: layout === 'sheet' ? 3 : 1
-      });
-      setPrintSuccessMsg('Opened print dialog.');
-      setTimeout(() => setPrintSuccessMsg(null), 4000);
-    } catch (err: any) {
-      console.warn('Iframe print error, opening popup window:', err);
-      try {
-        await openBarcodePrintWindow(printContainerRef.current, {
-          title: `Catalog Barcode Labels (${displayItems.length} Products)`,
-          layout,
-          labelSize,
-          columns: layout === 'sheet' ? 3 : 1
-        });
-      } catch (winErr: any) {
-        setPrintErrorMsg(winErr.message || 'Could not open print dialog.');
-      }
-    } finally {
-      setIsPrinting(false);
-    }
+  const handleOpenInNewTab = () => {
+    window.open(window.location.href, '_blank');
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:static">
       <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto border border-gray-200 print:border-none print:shadow-none print:rounded-none print:m-0 print:p-0">
         
-        {/* Header - Screen only */}
+        {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-900 text-white print:hidden">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-md">
@@ -185,11 +191,11 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 Print Catalog Barcode Labels
                 <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 font-semibold border border-amber-500/30">
-                  {validProducts.length} Items Available
+                  {totalLabelsToPrint} labels ready
                 </span>
               </h3>
               <p className="text-xs text-slate-300">
-                Batch print barcodes for your entire product catalog or selected items
+                Bulk print barcodes for inventory labeling, shelf tags, or product packaging
               </p>
             </div>
           </div>
@@ -201,12 +207,90 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
           </button>
         </div>
 
-        {/* Hardware Thermal Printer Connection Bar */}
-        <div className="p-4 pb-0 bg-slate-950">
-          <ThermalPrinterBar businessConfig={businessConfig} onDeviceChange={setPrinterState} />
+        {/* Printing Method Switcher Banner */}
+        <div className="bg-slate-950 p-4 pb-3 border-b border-slate-800 print:hidden space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Choose How Your Thermal Printer is Connected:
+            </span>
+            {isInIframe && (
+              <button
+                type="button"
+                onClick={handleOpenInNewTab}
+                className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                title="Open in full browser window for unrestricted USB/Bluetooth access"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>Open in Full Tab</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* Method 1: System Print (Installed OS Driver) */}
+            <button
+              type="button"
+              onClick={() => setPrintMethod('system')}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-start space-x-2.5 ${
+                printMethod === 'system'
+                  ? 'bg-amber-500/20 border-amber-500 text-white shadow-xs'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${printMethod === 'system' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                <Laptop className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">Installed Thermal Printer</span>
+                  <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-300 border border-amber-500/40">
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                  POS-58, POS-80, Epson, Xprinter with Windows/Mac driver. Zero pairing needed.
+                </p>
+              </div>
+            </button>
+
+            {/* Method 2: Direct Hardware (WebUSB / Bluetooth) */}
+            <button
+              type="button"
+              onClick={() => setPrintMethod('direct')}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-start space-x-2.5 ${
+                printMethod === 'direct'
+                  ? 'bg-amber-500/20 border-amber-500 text-white shadow-xs'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${printMethod === 'direct' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                <Cable className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-white">Direct USB / Bluetooth</span>
+                  {isThermalConnected && (
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
+                      Connected
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                  Raw ESC/POS cable without OS driver or wireless Bluetooth BLE printer.
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Show Hardware Connection Bar if in Direct Mode */}
+          {printMethod === 'direct' && (
+            <div className="pt-1">
+              <ThermalPrinterBar businessConfig={businessConfig} onDeviceChange={setPrinterState} />
+            </div>
+          )}
         </div>
 
-        {/* Notification Banners */}
+        {/* Notifications */}
         {printSuccessMsg && (
           <div className="mx-6 mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -221,16 +305,52 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
           </div>
         )}
 
-        {/* Controls - Screen only */}
-        <div className="p-5 border-b border-gray-200 bg-gray-50 space-y-4 print:hidden">
-          {/* Printer / Paper Type Segmented Tabs */}
+        {/* "Printer not in list" Help Card */}
+        {showDriverHelp && (
+          <div className="mx-6 mt-3 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
+            <div className="flex items-center justify-between font-bold text-amber-950">
+              <div className="flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4 text-amber-600" />
+                <span>Is your thermal printer not showing up in the USB list?</span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowDriverHelp(false)}
+                className="text-amber-700 hover:text-amber-950 font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              If your thermal printer is already recognized by Windows or Mac (e.g. POS-58 or XP-58 driver), the operating system locks the USB connection.
+            </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintMethod('system');
+                  setShowDriverHelp(false);
+                  handleSystemPrint();
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Switch to Installed Thermal Printer & Open Print Dialog</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Config & Filters - Screen only */}
+        <div className="p-6 border-b border-gray-100 bg-gray-50 space-y-4 print:hidden">
+          {/* Paper Format Segmented Tabs */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">
-                Paper Format & Printer Target:
+                Paper Roll Format:
               </label>
-              <span className="text-[11px] text-gray-500">
-                {layout === 'sheet' ? 'For A4 Sticker Sheet & Regular Printers' : 'Direct for 58mm / 80mm Thermal Rolls'}
+              <span className="text-[11px] text-gray-500 font-medium">
+                {layout === 'roll58' ? 'Continuous 58mm Thermal Roll' : layout === 'roll80' ? 'Continuous 80mm Thermal Roll' : 'A4 / Letter Sticker Sheet'}
               </span>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -268,13 +388,12 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>A4 Sticker Sheet</span>
+                <span>A4 Sheet (3-Col)</span>
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Copies per item */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
                 Copies Per Product:
@@ -286,31 +405,30 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                   max="20"
                   value={copiesPerProduct}
                   onChange={(e) => setCopiesPerProduct(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-bold text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-1.5 rounded-xl border border-gray-300 bg-white font-bold text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
                 <div className="flex space-x-1">
-                  {[1, 2, 4].map((preset) => (
+                  {[1, 2, 5].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => setCopiesPerProduct(preset)}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                         copiesPerProduct === preset
                           ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
                           : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
                       }`}
                     >
-                      {preset}×
+                      {preset}x
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Display Options */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                Display Details:
+                Display Options:
               </label>
               <div className="flex flex-col space-y-1.5 pt-1">
                 <label className="flex items-center space-x-2 text-xs text-gray-700 font-medium cursor-pointer">
@@ -329,20 +447,19 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
                     onChange={(e) => setShowBusinessName(e.target.checked)}
                     className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
                   />
-                  <span>Show Store Name</span>
+                  <span>Show Business Name</span>
                 </label>
               </div>
             </div>
 
-            {/* Label Size */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                Label Format:
+                Label Style:
               </label>
               <select
                 value={labelSize}
                 onChange={(e) => setLabelSize(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white font-medium text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                className="w-full px-3 py-1.5 rounded-xl border border-gray-300 bg-white font-medium text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
               >
                 <option value="standard">Standard Sticker (50mm × 30mm)</option>
                 <option value="compact">Compact Shelf Tag (40mm × 25mm)</option>
@@ -351,31 +468,34 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
             </div>
           </div>
 
-          {/* Product Selection Controls */}
+          {/* Product Selection Bar */}
           <div className="pt-2 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center space-x-3">
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                className="px-3 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-xs font-bold text-gray-700 flex items-center space-x-1.5 transition-colors cursor-pointer"
+                className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center space-x-1 cursor-pointer"
               >
                 {selectedProductIds.size === validProducts.length ? (
-                  <CheckSquare className="w-4 h-4 text-amber-600" />
+                  <>
+                    <CheckSquare className="w-4 h-4 text-amber-600" />
+                    <span>Deselect All</span>
+                  </>
                 ) : (
-                  <Square className="w-4 h-4 text-gray-400" />
+                  <>
+                    <Square className="w-4 h-4 text-gray-400" />
+                    <span>Select All ({validProducts.length})</span>
+                  </>
                 )}
-                <span>
-                  {selectedProductIds.size === validProducts.length ? 'Deselect All' : 'Select All Products'}
-                </span>
               </button>
-              <span className="text-gray-300">|</span>
-              <span className="text-xs text-gray-600">
-                Printing <strong>{totalLabelsToPrint}</strong> label{totalLabelsToPrint === 1 ? '' : 's'} ({displayItems.length} unique products)
+              <span className="text-xs text-gray-500">
+                {selectedProductIds.size} of {validProducts.length} selected
               </span>
             </div>
 
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-gray-400" />
+            {/* Quick Search */}
+            <div className="relative min-w-[200px] max-w-xs">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
@@ -388,7 +508,7 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
         </div>
 
         {/* Labels Sheet Preview & Printable Canvas */}
-        <div className="p-6 overflow-y-auto max-h-[55vh] bg-gray-100 print:bg-white print:p-0 print:max-h-none">
+        <div className="p-6 overflow-y-auto max-h-[50vh] bg-gray-100 print:bg-white print:p-0 print:max-h-none">
           {displayItems.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <p className="font-bold text-sm">No products selected to print</p>
@@ -455,13 +575,18 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
         {/* Footer - Dual Print Actions */}
         <div className="p-4 border-t border-gray-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
           <div className="text-xs text-gray-500 text-center sm:text-left">
-            {isThermalConnected ? (
+            {printMethod === 'system' ? (
+              <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 inline text-emerald-600 shrink-0" />
+                <span>Installed Thermal Printer mode: Opens print dialog with {layout === 'roll58' ? '58mm' : layout === 'roll80' ? '80mm' : 'A4'} roll formatting.</span>
+              </span>
+            ) : isThermalConnected ? (
               <span className="text-emerald-700 font-semibold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 inline text-emerald-600" />
                 Ready to print on {printerState.device?.name}
               </span>
             ) : (
-              <span>Plug thermal printer via USB or use Browser System Print.</span>
+              <span>Direct USB/BT mode requires pairing. (Or switch to Installed Thermal Printer above)</span>
             )}
           </div>
 
@@ -473,38 +598,40 @@ export const PrintCatalogLabelsModal: React.FC<PrintCatalogLabelsModalProps> = (
               Close
             </button>
 
-            {/* System Print Dialog Option */}
-            <button
-              type="button"
-              onClick={handleSystemPrint}
-              disabled={displayItems.length === 0 || isPrinting}
-              className="px-3.5 py-2.5 rounded-xl border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
-              title="Print via Windows / macOS system print dialog or save as PDF"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-gray-500" />
-              <span>System Print</span>
-            </button>
-
-            {/* Direct Hardware Thermal Print Button */}
-            <button
-              type="button"
-              onClick={handleDirectThermalPrint}
-              disabled={displayItems.length === 0 || isPrinting}
-              className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ${
-                isThermalConnected
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              <span>
-                {isPrinting
-                  ? 'Printing...'
-                  : isThermalConnected
-                  ? `Print ${totalLabelsToPrint} Labels (Thermal)`
-                  : `Connect & Print ${totalLabelsToPrint} Labels`}
-              </span>
-            </button>
+            {/* Primary Print Button */}
+            {printMethod === 'system' ? (
+              <button
+                type="button"
+                onClick={handleSystemPrint}
+                disabled={displayItems.length === 0 || isPrinting}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Printer className="w-4 h-4" />
+                <span>
+                  {isPrinting ? 'Opening...' : `Print ${totalLabelsToPrint} Labels (Thermal)`}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDirectThermalPrint}
+                disabled={displayItems.length === 0 || isPrinting}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ${
+                  isThermalConnected
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                <span>
+                  {isPrinting
+                    ? 'Printing...'
+                    : isThermalConnected
+                    ? `Print ${totalLabelsToPrint} Labels (Direct)`
+                    : `Connect & Print ${totalLabelsToPrint} Labels`}
+                </span>
+              </button>
+            )}
           </div>
         </div>
 

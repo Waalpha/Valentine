@@ -3,7 +3,7 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
-import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle } from 'lucide-react';
+import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle, KeyRound } from 'lucide-react';
 
 interface CashiersViewProps {
   user: UserProfile;
@@ -19,6 +19,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<'admin' | 'cashier'>('cashier');
   const [error, setError] = useState('');
@@ -76,7 +77,8 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
         const updatedProfile: Partial<UserProfile> = {
           name: name.trim(),
           email: email.trim(),
-          role: role
+          role: role,
+          pin: pin.trim() || undefined
         };
         try {
           await updateDoc(doc(db, 'users', editingUser.uid), updatedProfile);
@@ -99,6 +101,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
           name: name.trim(),
           role: role,
           password: password.trim(),
+          pin: pin.trim() || undefined,
           businessId: DEFAULT_BUSINESS_ID,
           status: 'active',
           createdAt: new Date().toISOString()
@@ -123,6 +126,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
       setName('');
       setEmail('');
       setPassword('');
+      setPin('');
       await fetchUsers();
     } catch (err: any) {
       console.error(err);
@@ -189,6 +193,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
             setName('');
             setEmail('');
             setPassword('');
+            setPin('');
             setRole('cashier');
             setError('');
             setIsModalOpen(true);
@@ -217,6 +222,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   <th className="p-4">Name</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Role</th>
+                  <th className="p-4">POS PIN</th>
                   <th className="p-4 text-center">Status</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
@@ -232,6 +238,12 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                         <span className="capitalize">{u.role}</span>
                       </span>
                     </td>
+                    <td className="p-4">
+                      <span className="inline-flex items-center space-x-1 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                        <KeyRound className="w-3 h-3 text-amber-600" />
+                        <span>{u.pin || (u.role === 'admin' ? '1234' : '1111')}</span>
+                      </span>
+                    </td>
                     <td className="p-4 text-center">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
                         {u.status}
@@ -245,6 +257,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                             setName(u.name);
                             setEmail(u.email);
                             setPassword('');
+                            setPin(u.pin || '');
                             setRole(u.role);
                             setError('');
                             setIsModalOpen(true);
@@ -337,6 +350,27 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   />
                 </div>
               )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  POS Numeric PIN (For Terminal Keypad Login)
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    placeholder={role === 'admin' ? '1234 (default)' : '1111 (default)'}
+                    className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none font-mono tracking-widest"
+                  />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  4-digit number staff can punch into the full-screen numeric pad to unlock POS.
+                </p>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Role</label>

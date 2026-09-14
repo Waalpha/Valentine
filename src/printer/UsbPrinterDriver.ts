@@ -42,6 +42,12 @@ export class UsbPrinterDriver {
         rawDevice: usbDevice
       };
     } catch (err: any) {
+      if (err?.name === 'SecurityError') {
+        throw new Error('Direct USB access is restricted inside this embedded preview frame. Open POS in a new browser tab, or switch to System Thermal Print.');
+      }
+      if (err?.name === 'NotFoundError') {
+        throw err; // user cancelled selection dialog
+      }
       throw new Error(err.message || 'Failed to select USB printer device');
     }
   }
@@ -79,6 +85,9 @@ export class UsbPrinterDriver {
         this.endpointOut = endpoint.endpointNumber;
       }
     } catch (err: any) {
+      if (err?.message?.includes('claimInterface') || err?.message?.includes('Access denied') || err?.name === 'SecurityError' || err?.name === 'NetworkError') {
+        throw new Error('Printer is currently locked by your computer\'s operating system driver (e.g. Windows POS-58/XP-58). Use System Thermal Print mode to print through your installed driver!');
+      }
       throw new Error(`USB Connection Error: ${err.message || 'Unable to open USB device'}`);
     }
   }

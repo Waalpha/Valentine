@@ -15,9 +15,11 @@ import { ThermalReceipt } from '../../printer/ThermalReceipt';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
+import { isAppInsideIframe, printBarcodeDirectly } from '../../lib/barcodePrintService';
 import { 
   Printer, Usb, Bluetooth, CheckCircle2, AlertCircle, RefreshCw, Power, 
-  Type, Bold, Italic, Sliders, Eye, RotateCcw, Save, Check 
+  Type, Bold, Italic, Sliders, Eye, RotateCcw, Save, Check,
+  ExternalLink, Laptop, Cable, HelpCircle, Info
 } from 'lucide-react';
 
 interface PrinterSettingsViewProps {
@@ -137,6 +139,57 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     }
   };
 
+  const handleTestSystemBarcode = async () => {
+    setLoading(true);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = `
+        <div class="barcode-label-card" style="padding: 6px 4px; text-align: center; border: 1px dashed #666; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;">
+          <div class="business-name" style="font-size: 8px; font-weight: 900; text-transform: uppercase;">${businessConfig?.name || 'Club Valentine Bar POS'}</div>
+          <div class="product-name" style="font-size: 10px; font-weight: 700; margin: 2px 0;">Test Barcode Label 500ml</div>
+          <div class="barcode-wrapper" style="margin: 4px 0;">
+            <svg id="system-test-barcode-svg"></svg>
+          </div>
+          <div class="price-tag" style="font-size: 11px; font-weight: 900;">${businessConfig?.currency || 'KSh'} 250</div>
+        </div>
+      `;
+      document.body.appendChild(container);
+      
+      const svg = container.querySelector('#system-test-barcode-svg');
+      if (svg) {
+        // Render barcode using JsBarcode
+        const JsBarcode = (await import('jsbarcode')).default;
+        JsBarcode(svg, '6161101234567', {
+          format: 'CODE128',
+          width: 1.5,
+          height: 36,
+          displayValue: true,
+          fontSize: 10,
+          font: 'monospace',
+          fontOptions: 'bold',
+          textAlign: 'center',
+          textPosition: 'bottom',
+          margin: 0
+        });
+      }
+
+      await printBarcodeDirectly(container, {
+        title: 'Sample Barcode Test Label',
+        layout: 'roll58',
+        columns: 1
+      });
+
+      container.remove();
+      setActionMessage('System Print dialog opened! Select your thermal printer (POS-58 or POS-80) to print.');
+    } catch (err: any) {
+      setError(err.message || 'System barcode test print failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     setLoading(true);
     setError(null);
@@ -240,11 +293,36 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     <div className="space-y-8 max-w-6xl mx-auto pb-12">
       {/* Page Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Thermal Printer & Receipt Formatting</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Configure physical printer connection and customize receipt font style, size, weight, and typography.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Thermal Printer & Receipt Formatting</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Configure thermal barcode and receipt printing via installed Windows/Mac driver or direct USB/Bluetooth.
+            </p>
+          </div>
+          {isAppInsideIframe() && (
+            <button
+              type="button"
+              onClick={() => window.open(window.location.href, '_blank')}
+              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open POS in Full Tab</span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {isAppInsideIframe() && (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Embedded Preview Frame:</strong> Browsers restrict direct WebUSB and WebBluetooth inside preview iframes. For direct cable control, click &quot;Open POS in Full Tab&quot;. Or use <strong>System Thermal Print</strong>, which works directly inside any frame!
+            </span>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center space-x-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700 border border-red-200">
@@ -434,20 +512,76 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
             </div>
           </div>
 
-          {/* Connection & Diagnostics Card */}
+          {/* Installed OS Thermal Printer (System Print) Card - 100% Compatible */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500 text-slate-950 font-black">
+                  <Laptop className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-gray-900">Installed Thermal Printer (System Print)</h3>
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Windows / macOS / Linux driver-based thermal printing (POS-58, XP-58, POS-80, Epson, Munbyn)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed space-y-1.5">
+              <p className="font-semibold text-slate-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Zero configuration required:</span>
+              </p>
+              <p>
+                If your thermal printer is plugged in via USB and already appears in your Windows or Mac printer settings, it prints automatically through the browser print dialog. You do not need to install WebUSB drivers or pair raw hardware!
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleTestSystemBarcode}
+                disabled={loading}
+                className="flex items-center space-x-2 rounded-2xl bg-amber-500 hover:bg-amber-400 px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-950 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                title="Test printing a sample barcode label via your installed printer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Test System Barcode (58mm Roll)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                disabled={loading}
+                className="flex items-center space-x-2 rounded-2xl bg-white hover:bg-gray-50 border border-gray-300 px-4 py-2.5 text-xs sm:text-sm font-bold text-gray-700 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                title="Open browser print dialog to test page formatting"
+              >
+                <Printer className="w-4 h-4 text-gray-500" />
+                <span>Test System Print Dialog</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Connection & Diagnostics Card (Direct WebUSB / Bluetooth) */}
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-xs space-y-6">
             <div className="flex items-center justify-between border-b border-gray-100 pb-4">
               <div className="flex items-center space-x-3">
                 <div className={`p-2.5 rounded-2xl ${state.status === 'connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
-                  <Printer className="w-5 h-5" />
+                  <Cable className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-gray-900">
-                    {state.device ? state.device.name : 'No Printer Paired'}
+                    Direct Hardware Connection (WebUSB / Bluetooth)
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Status: <span className={`font-semibold capitalize ${state.status === 'connected' ? 'text-emerald-600' : 'text-amber-600'}`}>{state.status}</span>
-                    {state.device && ` (${state.device.type.toUpperCase()})`}
+                    Raw ESC/POS protocol without OS print drivers • Status: <span className={`font-semibold capitalize ${state.status === 'connected' ? 'text-emerald-600' : 'text-amber-600'}`}>{state.status}</span>
+                    {state.device && ` (${state.device.name})`}
                   </p>
                 </div>
               </div>

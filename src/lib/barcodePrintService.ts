@@ -1,7 +1,7 @@
 /**
  * Dedicated Barcode & Label Printing Service
- * Handles isolated iframe printing, cross-browser support, A4 sheet vs Thermal roll layouts,
- * and high-contrast SVG vector rendering for POS barcode scanners.
+ * Handles direct in-DOM print overlays, thermal roll (58mm/80mm) vs A4 sheet layouts,
+ * high-contrast SVG vector rendering for POS barcode scanners, and cross-browser reliability.
  */
 
 export interface PrintLabelsOptions {
@@ -12,21 +12,45 @@ export interface PrintLabelsOptions {
 }
 
 /**
- * Serializes an HTML element with full SVG graphics, high-contrast styles,
- * and page-break rules into an isolated printable document.
+ * Checks if the app is currently running inside an iframe.
+ * Browsers restrict WebUSB and WebBluetooth inside cross-origin or sandboxed iframes.
  */
-export function printBarcodeContainer(
+export function isAppInsideIframe(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Primary In-DOM Browser Print
+ * Attaches an isolated, high-contrast print mount directly to document.body,
+ * applies precise @page and @media print rules for continuous thermal roll or sticker sheets,
+ * and triggers window.print(). This bypasses iframe sandbox and popup-blocker restrictions.
+ */
+export function printBarcodeDirectly(
   containerElement: HTMLElement,
   options: PrintLabelsOptions = {}
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const layout = options.layout || 'sheet';
+    const layout = options.layout || 'roll58';
     const title = options.title || 'Print Barcode Labels';
+
+    // Remove any previous print mount if lingering
+    const existingMount = document.getElementById('pos-thermal-print-mount');
+    if (existingMount) {
+      existingMount.remove();
+    }
+    const existingStyle = document.getElementById('pos-thermal-print-styles');
+    if (existingStyle) {
+      existingStyle.remove();
+    }
 
     // Clone element to manipulate SVGs safely without mutating live UI
     const clonedContainer = containerElement.cloneNode(true) as HTMLElement;
 
-    // Ensure all SVGs have proper XML namespaces and crisp rendering attributes
+    // Ensure all SVGs have proper XML namespaces and crisp vector rendering
     const svgs = clonedContainer.querySelectorAll('svg');
     svgs.forEach((svg) => {
       svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -35,221 +59,231 @@ export function printBarcodeContainer(
       svg.style.margin = '0 auto';
     });
 
-    // Page styling based on selected layout (A4 sticker sheet vs Thermal roll)
+    // Create mount container
+    const mount = document.createElement('div');
+    mount.id = 'pos-thermal-print-mount';
+
+    // Page CSS and layout CSS based on paper format
     let pageCss = '';
-    let gridCss = '';
+    let containerWidth = '48mm';
 
     if (layout === 'roll58') {
       pageCss = `
         @page {
           size: 58mm auto;
-          margin: 1mm 2mm;
-        }
-        body {
-          width: 54mm;
-          max-width: 54mm;
-          margin: 0 auto;
-          padding: 1mm 0;
+          margin: 0mm !important;
         }
       `;
-      gridCss = `
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4mm;
-        width: 100%;
-      `;
+      containerWidth = '48mm';
     } else if (layout === 'roll80') {
       pageCss = `
         @page {
           size: 80mm auto;
-          margin: 2mm 3mm;
-        }
-        body {
-          width: 74mm;
-          max-width: 74mm;
-          margin: 0 auto;
-          padding: 2mm 0;
+          margin: 0mm !important;
         }
       `;
-      gridCss = `
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 5mm;
-        width: 100%;
-      `;
+      containerWidth = '72mm';
     } else {
-      // Standard A4 / Letter sheet layout (2 to 4 columns grid)
+      // A4 / Letter sheet
+      const cols = options.columns || 3;
       pageCss = `
         @page {
           size: A4 portrait;
-          margin: 8mm 6mm;
-        }
-        body {
-          margin: 0;
-          padding: 0;
-          background: #ffffff;
+          margin: 8mm 6mm !important;
         }
       `;
-      const cols = options.columns || 3;
-      gridCss = `
-        display: grid;
-        grid-template-columns: repeat(${cols}, minmax(0, 1fr));
-        gap: 3.5mm;
-        width: 100%;
-      `;
+      containerWidth = '100%';
     }
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8" />
-          <title>${title}</title>
-          <style>
-            * {
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-              color-adjust: exact !important;
-            }
-            ${pageCss}
-            body {
-              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-              color: #000000;
-              background-color: #ffffff;
-            }
-            .print-grid {
-              ${gridCss}
-            }
-            .barcode-label-card {
-              background: #ffffff !important;
-              border: 1px dashed #666666 !important;
-              border-radius: 4px !important;
-              padding: 6px 4px !important;
-              text-align: center !important;
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-              display: flex !important;
-              flex-direction: column !important;
-              align-items: center !important;
-              justify-content: space-between !important;
-              overflow: hidden !important;
-            }
-            .business-name {
-              font-size: 8px !important;
-              font-weight: 900 !important;
-              text-transform: uppercase !important;
-              letter-spacing: 0.5px !important;
-              color: #333333 !important;
-              line-height: 1.1 !important;
-              margin-bottom: 2px !important;
-              white-space: nowrap !important;
-              overflow: hidden !important;
-              text-overflow: ellipsis !important;
-              max-width: 100% !important;
-            }
-            .product-name {
-              font-size: 10px !important;
-              font-weight: 700 !important;
-              color: #000000 !important;
-              line-height: 1.2 !important;
-              margin-bottom: 2px !important;
-              display: -webkit-box !important;
-              -webkit-line-clamp: 2 !important;
-              -webkit-box-orient: vertical !important;
-              overflow: hidden !important;
-            }
-            .barcode-wrapper {
-              display: flex !important;
-              justify-content: center !important;
-              align-items: center !important;
-              width: 100% !important;
-              margin: 2px 0 !important;
-            }
-            .barcode-wrapper svg {
-              max-width: 100% !important;
-              height: auto !important;
-            }
-            .price-tag {
-              font-size: 11px !important;
-              font-weight: 900 !important;
-              color: #000000 !important;
-              margin-top: 2px !important;
-            }
-            .price-tag .curr {
-              font-size: 9px !important;
-              font-weight: 600 !important;
-              color: #444444 !important;
-              margin-right: 2px !important;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="print-grid">
-            ${clonedContainer.innerHTML}
-          </div>
-        </body>
-      </html>
+    // Inject temporary print styles
+    const styleEl = document.createElement('style');
+    styleEl.id = 'pos-thermal-print-styles';
+    styleEl.textContent = `
+      ${pageCss}
+
+      @media screen {
+        #pos-thermal-print-mount {
+          display: none !important;
+        }
+      }
+
+      @media print {
+        /* Hide everything in the POS except our dedicated print mount */
+        body > *:not(#pos-thermal-print-mount) {
+          display: none !important;
+        }
+
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          width: 100% !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        #pos-thermal-print-mount {
+          display: block !important;
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100% !important;
+          background: #ffffff !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+
+        .thermal-print-wrapper {
+          width: ${containerWidth};
+          margin: 0 auto;
+          padding: 1mm 0 12mm 0; /* 12mm bottom buffer for clean tear-off */
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3mm;
+        }
+
+        .sheet-print-wrapper {
+          width: 100%;
+          display: grid;
+          grid-template-columns: repeat(${options.columns || 3}, minmax(0, 1fr));
+          gap: 3.5mm;
+          padding: 2mm 0;
+        }
+
+        .barcode-label-card {
+          background: #ffffff !important;
+          border: 1px dashed #666666 !important;
+          border-radius: 4px !important;
+          padding: 5px 3px !important;
+          text-align: center !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
+        }
+
+        .business-name {
+          font-size: 8px !important;
+          font-weight: 900 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.5px !important;
+          color: #222222 !important;
+          line-height: 1.1 !important;
+          margin-bottom: 2px !important;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          max-width: 100% !important;
+        }
+
+        .product-name {
+          font-size: 10px !important;
+          font-weight: 800 !important;
+          color: #000000 !important;
+          line-height: 1.2 !important;
+          margin-bottom: 2px !important;
+          text-align: center !important;
+        }
+
+        .barcode-wrapper {
+          display: flex !important;
+          justify-content: center !important;
+          align-items: center !important;
+          width: 100% !important;
+          margin: 2px 0 !important;
+        }
+
+        .barcode-wrapper svg {
+          max-width: 100% !important;
+          height: auto !important;
+        }
+
+        .price-tag {
+          font-size: 11px !important;
+          font-weight: 900 !important;
+          color: #000000 !important;
+          margin-top: 2px !important;
+        }
+
+        .price-tag .curr {
+          font-size: 9px !important;
+          font-weight: 700 !important;
+          color: #444444 !important;
+          margin-right: 2px !important;
+        }
+      }
     `;
+    document.head.appendChild(styleEl);
 
-    // Strategy 1: Hidden Iframe Print
-    // Creates an isolated frame so parent DOM / AI Studio styles don't conflict
-    try {
-      const iframe = document.createElement('iframe');
-      iframe.setAttribute('style', 'position:fixed;top:-10000px;left:-10000px;width:1px;height:1px;border:0;');
-      document.body.appendChild(iframe);
+    // Populate mount
+    const wrapperClass = layout === 'sheet' ? 'sheet-print-wrapper' : 'thermal-print-wrapper';
+    mount.innerHTML = `<div class="${wrapperClass}">${clonedContainer.innerHTML}</div>`;
+    document.body.appendChild(mount);
 
-      const frameDoc = iframe.contentWindow?.document || iframe.contentDocument;
-      if (!frameDoc) {
-        throw new Error('Failed to acquire iframe document');
-      }
+    // Save previous document title temporarily for clean print job name
+    const originalTitle = document.title;
+    document.title = title;
 
-      frameDoc.open();
-      frameDoc.write(htmlContent);
-      frameDoc.close();
-
-      const triggerPrint = () => {
+    const cleanup = () => {
+      document.title = originalTitle;
+      setTimeout(() => {
         try {
-          iframe.contentWindow?.focus();
-          const printed = iframe.contentWindow?.print();
-          setTimeout(() => {
-            try {
-              document.body.removeChild(iframe);
-            } catch {
-              // Ignore removal failure
-            }
-            resolve(true);
-          }, 1000);
-        } catch (err) {
-          console.warn('Iframe print failed, falling back to popup print window:', err);
-          openBarcodePrintWindow(containerElement, options).then(resolve);
+          mount.remove();
+          styleEl.remove();
+        } catch {
+          // ignore
         }
-      };
+      }, 500);
+      resolve(true);
+    };
 
-      // Ensure iframe content is rendered before triggering print dialog
-      if (iframe.contentWindow) {
-        iframe.contentWindow.onload = () => {
-          setTimeout(triggerPrint, 250);
-        };
-        // Safety timeout in case onload doesn't fire
-        setTimeout(triggerPrint, 600);
-      } else {
-        triggerPrint();
+    // Clean up on afterprint event
+    const handleAfterPrint = () => {
+      window.removeEventListener('afterprint', handleAfterPrint);
+      cleanup();
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+
+    // Small delay to ensure styles and SVGs are calculated before opening print dialog
+    setTimeout(() => {
+      try {
+        window.focus();
+        window.print();
+        // Fallback cleanup if afterprint doesn't fire
+        setTimeout(cleanup, 2000);
+      } catch (err) {
+        console.error('window.print() error:', err);
+        cleanup();
       }
-    } catch (e) {
-      console.warn('Could not use iframe printing, attempting popup window print:', e);
-      openBarcodePrintWindow(containerElement, options).then(resolve);
-    }
+    }, 150);
   });
 }
 
 /**
+ * Standard Print Function: Attempts In-DOM printing first,
+ * with fallback to popup window if needed.
+ */
+export async function printBarcodeContainer(
+  containerElement: HTMLElement,
+  options: PrintLabelsOptions = {}
+): Promise<boolean> {
+  try {
+    return await printBarcodeDirectly(containerElement, options);
+  } catch (err) {
+    console.warn('In-DOM print failed, trying popup window:', err);
+    return openBarcodePrintWindow(containerElement, options);
+  }
+}
+
+/**
  * Fallback to open a dedicated print window.
- * This completely bypasses iframe sandboxing and ensures Chrome/Edge sees all system printers.
+ * Bypasses iframe sandboxing and allows user to interact directly with the print window.
  */
 export function openBarcodePrintWindow(
   containerElement: HTMLElement,
@@ -257,7 +291,7 @@ export function openBarcodePrintWindow(
 ): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const layout = options.layout || 'sheet';
+      const layout = options.layout || 'roll58';
       const title = options.title || 'Print Barcode Labels';
       const clonedContainer = containerElement.cloneNode(true) as HTMLElement;
 
@@ -270,33 +304,24 @@ export function openBarcodePrintWindow(
       });
 
       let pageCss = '';
-      let gridCss = '';
+      let widthCss = '48mm';
 
       if (layout === 'roll58') {
-        pageCss = `
-          @page { size: 58mm auto; margin: 1mm 2mm; }
-          body { width: 54mm; max-width: 54mm; margin: 0 auto; padding: 1mm 0; }
-        `;
-        gridCss = `display: flex; flex-direction: column; align-items: center; gap: 4mm; width: 100%;`;
+        pageCss = `@page { size: 58mm auto; margin: 0mm; }`;
+        widthCss = '48mm';
       } else if (layout === 'roll80') {
-        pageCss = `
-          @page { size: 80mm auto; margin: 2mm 3mm; }
-          body { width: 74mm; max-width: 74mm; margin: 0 auto; padding: 2mm 0; }
-        `;
-        gridCss = `display: flex; flex-direction: column; align-items: center; gap: 5mm; width: 100%;`;
+        pageCss = `@page { size: 80mm auto; margin: 0mm; }`;
+        widthCss = '72mm';
       } else {
-        pageCss = `
-          @page { size: A4 portrait; margin: 8mm 6mm; }
-          body { margin: 0; padding: 0; background: #ffffff; }
-        `;
         const cols = options.columns || 3;
-        gridCss = `display: grid; grid-template-columns: repeat(${cols}, minmax(0, 1fr)); gap: 3.5mm; width: 100%;`;
+        pageCss = `@page { size: A4 portrait; margin: 8mm 6mm; }`;
+        widthCss = '100%';
       }
 
       const win = window.open('', '_blank', 'width=800,height=900');
       if (!win) {
-        // Popups might be blocked, fallback to window.print
-        fallbackWindowPrint(resolve);
+        // Popups might be blocked, use in-DOM print
+        printBarcodeDirectly(containerElement, options).then(resolve);
         return;
       }
 
@@ -309,26 +334,34 @@ export function openBarcodePrintWindow(
             <style>
               * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
               ${pageCss}
-              body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000; background: #fff; }
-              .print-grid { ${gridCss} }
+              body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000; background: #fff; padding: 10px; }
+              .print-grid {
+                width: ${widthCss};
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+                gap: 4mm;
+                padding-bottom: 12mm;
+              }
               .barcode-label-card { background: #fff !important; border: 1px dashed #666 !important; border-radius: 4px !important; padding: 6px 4px !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: space-between !important; }
-              .business-name { font-size: 8px !important; font-weight: 900 !important; text-transform: uppercase !important; color: #333 !important; margin-bottom: 2px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+              .business-name { font-size: 8px !important; font-weight: 900 !important; text-transform: uppercase !important; color: #222 !important; margin-bottom: 2px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
               .product-name { font-size: 10px !important; font-weight: 700 !important; color: #000 !important; margin-bottom: 2px !important; line-height: 1.2 !important; }
               .barcode-wrapper { display: flex !important; justify-content: center !important; margin: 2px 0 !important; }
               .price-tag { font-size: 11px !important; font-weight: 900 !important; color: #000 !important; margin-top: 2px !important; }
               .price-tag .curr { font-size: 9px !important; font-weight: 600 !important; color: #444 !important; margin-right: 2px !important; }
               @media screen {
-                .screen-banner { background: #1e293b; color: white; padding: 12px; text-align: center; font-size: 14px; margin-bottom: 16px; border-radius: 8px; font-family: sans-serif; }
-                .screen-banner button { background: #f59e0b; color: #0f172a; border: none; padding: 6px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-left: 12px; }
+                .screen-banner { background: #0f172a; color: white; padding: 14px; text-align: center; font-size: 14px; margin-bottom: 16px; border-radius: 12px; font-family: sans-serif; display: flex; align-items: center; justify-content: space-between; }
+                .screen-banner button { background: #f59e0b; color: #0f172a; border: none; padding: 8px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
               }
               @media print {
+                body { padding: 0 !important; }
                 .screen-banner { display: none !important; }
               }
             </style>
           </head>
           <body>
             <div class="screen-banner">
-              <span>Ready to print labels</span>
+              <span>Ready to print ${options.layout === 'sheet' ? 'Sticker Sheet' : 'Thermal Roll Labels'}</span>
               <button onclick="window.print()">Open Print Dialog</button>
             </div>
             <div class="print-grid">
@@ -348,22 +381,8 @@ export function openBarcodePrintWindow(
         resolve(true);
       }, 500);
     } catch (e) {
-      console.warn('Popup window print failed, falling back to window.print:', e);
-      fallbackWindowPrint(resolve);
+      console.warn('Popup window print failed, falling back to in-DOM print:', e);
+      printBarcodeDirectly(containerElement, options).then(resolve);
     }
   });
-}
-
-function fallbackWindowPrint(resolve: (val: boolean) => void) {
-  try {
-    document.body.classList.add('is-printing-barcode-labels');
-    window.print();
-    setTimeout(() => {
-      document.body.classList.remove('is-printing-barcode-labels');
-      resolve(true);
-    }, 500);
-  } catch (err) {
-    console.error('All print attempts failed:', err);
-    resolve(false);
-  }
 }

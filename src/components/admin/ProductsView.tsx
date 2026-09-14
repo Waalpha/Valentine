@@ -3,7 +3,7 @@ import { UserProfile, BusinessConfig, Product, Category } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
-import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Barcode, Printer, Sparkles, Camera } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Barcode, Printer, Sparkles, Camera, PackagePlus, CheckCircle2, Layers, RefreshCw, AlertTriangle } from 'lucide-react';
 import { BarcodeSvg } from '../common/BarcodeSvg';
 import { PrintBarcodeLabelModal } from '../common/PrintBarcodeLabelModal';
 import { PrintCatalogLabelsModal } from '../common/PrintCatalogLabelsModal';
@@ -11,6 +11,12 @@ import { AssignBarcodesModal } from './AssignBarcodesModal';
 import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
 import { generateBarcode, isBarcodeUniqueWithinTenant } from '../../lib/barcodeUtils';
 import { cacheLocalProducts, getLocalCachedProducts } from '../../lib/offlineManager';
+import { 
+  addAllProductsToInventory, 
+  removeAllProductsFromInventory, 
+  addStockToAllProducts, 
+  STANDARD_INVENTORY_PRODUCTS 
+} from '../../lib/inventoryService';
 
 interface ProductsViewProps {
   user: UserProfile;
@@ -35,9 +41,30 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
   const [isAssignBarcodesModalOpen, setIsAssignBarcodesModalOpen] = useState(false);
   const [isCatalogLabelsModalOpen, setIsCatalogLabelsModalOpen] = useState(false);
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+
+  // Add / Remove All to Inventory States
+  const [isAddAllModalOpen, setIsAddAllModalOpen] = useState(false);
+  const [addAllMode, setAddAllMode] = useState<'append' | 'replace'>('append');
+  const [isAddingAll, setIsAddingAll] = useState(false);
+
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  // Multi-Selection State
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [isRemoveSelectedModalOpen, setIsRemoveSelectedModalOpen] = useState(false);
+  const [isRemovingSelected, setIsRemovingSelected] = useState(false);
+
+  // Bulk Stock Modal
+  const [isBulkStockModalOpen, setIsBulkStockModalOpen] = useState(false);
+  const [bulkStockQty, setBulkStockQty] = useState<number>(20);
+  const [bulkStockReason, setBulkStockReason] = useState<string>('Stock delivery replenishment');
+  const [isBulkStockProcessing, setIsBulkStockProcessing] = useState(false);
+
+  // Notifications
+  const [actionNotification, setActionNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   const [formData, setFormData] = useState({
     name: '',
     barcode: '',
@@ -256,28 +283,132 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     reader.readAsText(file);
   };
 
-  const handleDeleteAllProducts = async () => {
-    if (products.length === 0) return;
-    setIsDeletingAll(true);
+  const handleExecuteAddAll = async (mode: 'append' | 'replace') => {
+    setIsAddingAll(true);
+    setActionNotification(null);
     try {
-      // Delete all products from Firestore
-      for (const p of products) {
-        try {
-          await deleteDoc(doc(db, 'businesses', tenantId, 'products', p.id));
-        } catch (err) {
-          console.warn(`Could not delete product ${p.id} from Firestore`, err);
-        }
+      const result = await addAllProductsToInventory({
+        tenantId,
+        user: { uid: user.uid, name: user.name },
+        mode
+      });
+      setProducts(result.updatedProducts);
+      setIsAddAllModalOpen(false);
+      setActionNotification({
+        type: 'success',
+        message: mode === 'replace'
+          ? `Successfully replaced inventory with all ${result.addedCount} standard products!`
+          : `Successfully added ${result.addedCount} standard products to inventory! (Total products: ${result.updatedProducts.length})`
+      });
+      // Refresh categories from Firestore as well
+      try {
+        const catRef = collection(db, 'businesses', tenantId, 'categories');
+        const catSnap = await getDocs(catRef);
+        const cats: Category[] = [];
+        catSnap.forEach(d => cats.push({ id: d.id, ...d.data() } as Category));
+        if (cats.length > 0) setCategories(cats);
+      } catch (e) {
+        // ignore
       }
-      setProducts([]);
-      cacheLocalProducts([], tenantId);
-      await logAuditAction(user.uid, user.name, 'PRODUCTS_DELETED_ALL', `Deleted all ${products.length} products from catalog`);
-      setIsDeleteAllModalOpen(false);
-      setDeleteAllConfirmText('');
     } catch (err: any) {
       console.error(err);
-      alert('Failed to delete all products: ' + err.message);
+      setActionNotification({
+        type: 'error',
+        message: 'Failed to add products to inventory: ' + (err.message || 'Unknown error')
+      });
+    } finally {
+      setIsAddingAll(false);
+    }
+  };
+
+  const handleExecuteRemoveAll = async () => {
+    if (products.length === 0) return;
+    setIsDeletingAll(true);
+    setActionNotification(null);
+    try {
+      const { deletedCount } = await removeAllProductsFromInventory({
+        tenantId,
+        user: { uid: user.uid, name: user.name },
+        productsToRemove: products
+      });
+      setProducts([]);
+      setSelectedProductIds(new Set());
+      setIsDeleteAllModalOpen(false);
+      setDeleteAllConfirmText('');
+      setActionNotification({
+        type: 'success',
+        message: `Successfully removed all ${deletedCount} products from inventory.`
+      });
+    } catch (err: any) {
+      console.error(err);
+      setActionNotification({
+        type: 'error',
+        message: 'Failed to remove all products from inventory: ' + (err.message || 'Unknown error')
+      });
     } finally {
       setIsDeletingAll(false);
+    }
+  };
+
+  const handleExecuteRemoveSelected = async () => {
+    if (selectedProductIds.size === 0) return;
+    setIsRemovingSelected(true);
+    setActionNotification(null);
+    try {
+      const targets = products.filter(p => selectedProductIds.has(p.id));
+      const { deletedCount } = await removeAllProductsFromInventory({
+        tenantId,
+        user: { uid: user.uid, name: user.name },
+        productsToRemove: targets
+      });
+      const remaining = products.filter(p => !selectedProductIds.has(p.id));
+      setProducts(remaining);
+      cacheLocalProducts(remaining, tenantId);
+      setSelectedProductIds(new Set());
+      setIsRemoveSelectedModalOpen(false);
+      setActionNotification({
+        type: 'success',
+        message: `Successfully removed ${deletedCount} selected products from inventory.`
+      });
+    } catch (err: any) {
+      console.error(err);
+      setActionNotification({
+        type: 'error',
+        message: 'Failed to remove selected products: ' + (err.message || 'Unknown error')
+      });
+    } finally {
+      setIsRemovingSelected(false);
+    }
+  };
+
+  const handleExecuteBulkStock = async () => {
+    if (bulkStockQty <= 0) return;
+    setIsBulkStockProcessing(true);
+    setActionNotification(null);
+    try {
+      const targetIds: string[] | undefined = selectedProductIds.size > 0 ? Array.from(selectedProductIds) as string[] : undefined;
+      const result = await addStockToAllProducts({
+        tenantId,
+        user: { uid: user.uid, name: user.name },
+        qtyToAdd: bulkStockQty,
+        reason: bulkStockReason.trim() || 'Stock delivery replenishment',
+        targetProductIds: targetIds
+      });
+      setProducts(result.updatedProducts);
+      setIsBulkStockModalOpen(false);
+      setActionNotification({
+        type: 'success',
+        message: `Successfully added +${bulkStockQty} units to ${result.updatedCount} products in inventory!`
+      });
+      setBulkStockQty(20);
+    } catch (err: any) {
+      console.error(err);
+      setActionNotification({
+        type: 'error',
+        message: 'Failed to bulk add stock: ' + (err.message || 'Unknown error')
+      });
+    } finally {
+      setIsBulkStockProcessing(false);
     }
   };
 
@@ -482,16 +613,24 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
             <span>Print Labels</span>
           </button>
           <button
+            onClick={() => setIsAddAllModalOpen(true)}
+            className="inline-flex items-center space-x-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-sm shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer"
+            title="Add All Standard Products to Inventory"
+          >
+            <PackagePlus className="w-4 h-4" />
+            <span>Add All to Inventory</span>
+          </button>
+          <button
             onClick={() => {
               setDeleteAllConfirmText('');
               setIsDeleteAllModalOpen(true);
             }}
             disabled={products.length === 0}
-            className="inline-flex items-center space-x-2 rounded-2xl bg-red-50 border border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 text-sm font-bold text-red-600 shadow-sm transition-all active:scale-95"
-            title="Delete All Products"
+            className="inline-flex items-center space-x-2 rounded-2xl bg-red-50 border border-red-200 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 text-sm font-bold text-red-600 shadow-sm transition-all active:scale-95 cursor-pointer"
+            title="Remove All Products from Inventory"
           >
             <Trash2 className="w-4 h-4 text-red-500" />
-            <span>Delete All</span>
+            <span>Remove All from Inventory</span>
           </button>
           <button
             onClick={handleOpenAddModal}
@@ -575,15 +714,141 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         </div>
       )}
 
-      {/* Products Table */}
+      {/* Action Notification Banner */}
+      {actionNotification && (
+        <div className={`rounded-2xl p-4 flex items-center justify-between text-sm shadow-xs border transition-all ${
+          actionNotification.type === 'success'
+            ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+            : 'bg-red-50 text-red-900 border-red-200'
+        }`}>
+          <div className="flex items-center space-x-2.5">
+            {actionNotification.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+            )}
+            <span className="font-medium">{actionNotification.message}</span>
+          </div>
+          <button
+            onClick={() => setActionNotification(null)}
+            className="p-1 rounded-lg hover:bg-black/5 text-gray-500 hover:text-gray-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Selection Bar */}
+      {selectedProductIds.size > 0 && (
+        <div className="rounded-2xl bg-slate-900 text-white p-3.5 sm:px-5 flex flex-wrap items-center justify-between gap-3 shadow-lg animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-3">
+            <span className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-black">
+              {selectedProductIds.size}
+            </span>
+            <span className="text-sm font-semibold">
+              {selectedProductIds.size} of {products.length} product{selectedProductIds.size === 1 ? '' : 's'} selected
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsBulkStockModalOpen(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-xs font-bold transition-all text-white cursor-pointer shadow-xs"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Add Stock to Selected</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRemoveSelectedModalOpen(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-bold transition-all text-white cursor-pointer shadow-xs"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Remove Selected ({selectedProductIds.size})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedProductIds(new Set())}
+              className="inline-flex items-center space-x-1 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-gray-200 transition-all cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Deselect All</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Products Table or Empty Inventory State */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading products...</div>
+      ) : products.length === 0 ? (
+        <div className="bg-white rounded-3xl border-2 border-dashed border-gray-200 p-8 sm:p-12 text-center space-y-5 shadow-xs">
+          <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+            <PackagePlus className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-xl font-bold text-gray-900">Inventory is Empty</h3>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              No products found in inventory. You can populate all 26 standard bar products (beers, spirits, wines, ciders, and soft drinks with barcodes, initial stock, and pricing) in one click.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsAddAllModalOpen(true)}
+              className="inline-flex items-center space-x-2 px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer"
+            >
+              <PackagePlus className="w-5 h-5" />
+              <span>Add All Products to Inventory</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center space-x-2 px-5 py-3 rounded-2xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold text-sm shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Import CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenAddModal()}
+              className="inline-flex items-center space-x-2 px-5 py-3 rounded-2xl bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold text-sm shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Single Product</span>
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="bg-white rounded-3xl border border-gray-200 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <th className="p-4 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.has(p.id))}
+                      onChange={() => {
+                        const allFilteredSelected = filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.has(p.id));
+                        if (allFilteredSelected) {
+                          const next = new Set(selectedProductIds);
+                          filteredProducts.forEach(p => next.delete(p.id));
+                          setSelectedProductIds(next);
+                        } else {
+                          const next = new Set(selectedProductIds);
+                          filteredProducts.forEach(p => next.add(p.id));
+                          setSelectedProductIds(next);
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 cursor-pointer"
+                      title={
+                        filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.has(p.id))
+                          ? 'Deselect all products'
+                          : 'Select all products'
+                      }
+                    />
+                  </th>
                   <th className="p-4">Product Name</th>
                   <th className="p-4">Barcode</th>
                   <th className="p-4">Category</th>
@@ -595,76 +860,103 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {filteredProducts.map(product => (
-                  <tr key={product.id} className="hover:bg-gray-50/80 transition-colors">
-                    <td className="p-4 font-bold text-gray-900">{product.name}</td>
-                    <td className="p-4">
-                      {product.barcode ? (
-                        <div className="flex items-center space-x-1.5">
-                          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
-                            {product.barcode}
-                          </span>
-                          <button
-                            onClick={() => setLabelModalProduct(product)}
-                            className="p-1 rounded text-gray-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
-                            title="Print Barcode Label"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            handleOpenEditModal(product);
-                            const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
-                            const newCode = generateBarcode('CODE128', existingCodes);
-                            setFormData(prev => ({ ...prev, barcode: newCode }));
-                          }}
-                          className="text-xs text-amber-600 hover:text-amber-700 font-medium hover:underline flex items-center space-x-1"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Assign</span>
-                        </button>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
-                        {product.categoryName}
-                      </span>
-                    </td>
-                    <td className="p-4 text-gray-600">{product.unitType}</td>
-                    <td className="p-4 text-right font-black text-amber-700">
-                      {formatCurrency(product.sellingPrice, currency)}
-                    </td>
-                    <td className="p-4 text-center font-medium text-gray-700">{product.openingStock}</td>
-                    <td className="p-4 text-center font-bold text-gray-900">{product.currentStock}</td>
-                    <td className="p-4 text-right space-x-2 whitespace-nowrap">
-                      {product.barcode && (
-                        <button
-                          onClick={() => setLabelModalProduct(product)}
-                          className="p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
-                          title="Print Barcode Label"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleOpenEditModal(product)}
-                        className="p-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all"
-                        title="Edit Product"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProduct(product)}
-                        className="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-all"
-                        title="Delete Product"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                {filteredProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-8 text-center text-gray-400">
+                      No products match your search or filter.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredProducts.map(product => {
+                    const isSelected = selectedProductIds.has(product.id);
+                    return (
+                      <tr 
+                        key={product.id} 
+                        className={`transition-colors ${isSelected ? 'bg-amber-50/50' : 'hover:bg-gray-50/80'}`}
+                      >
+                        <td className="p-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const next = new Set(selectedProductIds);
+                              if (e.target.checked) next.add(product.id);
+                              else next.delete(product.id);
+                              setSelectedProductIds(next);
+                            }}
+                            className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 cursor-pointer"
+                          />
+                        </td>
+                        <td className="p-4 font-bold text-gray-900">{product.name}</td>
+                        <td className="p-4">
+                          {product.barcode ? (
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
+                                {product.barcode}
+                              </span>
+                              <button
+                                onClick={() => setLabelModalProduct(product)}
+                                className="p-1 rounded text-gray-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                                title="Print Barcode Label"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                handleOpenEditModal(product);
+                                const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
+                                const newCode = generateBarcode('CODE128', existingCodes);
+                                setFormData(prev => ({ ...prev, barcode: newCode }));
+                              }}
+                              className="text-xs text-amber-600 hover:text-amber-700 font-medium hover:underline flex items-center space-x-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Assign</span>
+                            </button>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                            {product.categoryName}
+                          </span>
+                        </td>
+                        <td className="p-4 text-gray-600">{product.unitType}</td>
+                        <td className="p-4 text-right font-black text-amber-700">
+                          {formatCurrency(product.sellingPrice, currency)}
+                        </td>
+                        <td className="p-4 text-center font-medium text-gray-700">{product.openingStock}</td>
+                        <td className="p-4 text-center font-bold text-gray-900">{product.currentStock}</td>
+                        <td className="p-4 text-right space-x-2 whitespace-nowrap">
+                          {product.barcode && (
+                            <button
+                              onClick={() => setLabelModalProduct(product)}
+                              className="p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
+                              title="Print Barcode Label"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleOpenEditModal(product)}
+                            className="p-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(product)}
+                            className="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-all"
+                            title="Delete Product"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -882,7 +1174,7 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         </div>
       )}
 
-      {/* Delete All Confirmation Modal */}
+      {/* Remove All Products from Inventory Modal */}
       {isDeleteAllModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-5">
@@ -891,7 +1183,7 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                 <div className="rounded-full bg-red-100 p-2">
                   <Trash2 className="w-5 h-5 text-red-600" />
                 </div>
-                <h3 className="text-lg font-bold text-gray-900">Delete All Products</h3>
+                <h3 className="text-lg font-bold text-gray-900">Remove All Products from Inventory</h3>
               </div>
               <button
                 onClick={() => {
@@ -901,29 +1193,32 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                   }
                 }}
                 disabled={isDeletingAll}
-                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="rounded-2xl bg-red-50 p-4 border border-red-200 text-xs text-red-800 space-y-1">
-              <p className="font-bold">Caution: Destructive Action</p>
+            <div className="rounded-2xl bg-red-50 p-4 border border-red-200 text-xs text-red-800 space-y-1.5">
+              <p className="font-bold flex items-center space-x-1.5">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Caution: Destructive Action</span>
+              </p>
               <p>
-                This will permanently remove <strong>all {products.length} products</strong>, stock counts, and pricing configurations from both the database and local storage. This action cannot be reversed.
+                This will permanently remove <strong>all {products.length} products</strong>, stock counts, and barcode configurations from inventory. This action cannot be reversed.
               </p>
             </div>
 
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-gray-700">
-                To confirm, please type <span className="font-mono font-bold text-red-600">DELETE</span> below:
+                To confirm, type <span className="font-mono font-bold text-red-600">REMOVE</span> or <span className="font-mono font-bold text-red-600">DELETE</span>:
               </label>
               <input
                 type="text"
                 disabled={isDeletingAll}
                 value={deleteAllConfirmText}
                 onChange={(e) => setDeleteAllConfirmText(e.target.value)}
-                placeholder="Type DELETE to confirm"
+                placeholder="Type REMOVE to confirm"
                 className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/20"
               />
             </div>
@@ -931,12 +1226,16 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
             <div className="pt-2 flex space-x-3">
               <button
                 type="button"
-                onClick={handleDeleteAllProducts}
-                disabled={deleteAllConfirmText.trim().toUpperCase() !== 'DELETE' || isDeletingAll}
-                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md transition-all flex items-center justify-center space-x-2"
+                onClick={handleExecuteRemoveAll}
+                disabled={
+                  (deleteAllConfirmText.trim().toUpperCase() !== 'REMOVE' &&
+                   deleteAllConfirmText.trim().toUpperCase() !== 'DELETE') ||
+                  isDeletingAll
+                }
+                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>{isDeletingAll ? 'Deleting Products...' : 'Yes, Delete All'}</span>
+                <span>{isDeletingAll ? 'Removing All Products...' : 'Yes, Remove All'}</span>
               </button>
               <button
                 type="button"
@@ -945,7 +1244,242 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                   setIsDeleteAllModalOpen(false);
                   setDeleteAllConfirmText('');
                 }}
-                className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all"
+                className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add All Products to Inventory Modal */}
+      {isAddAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center space-x-2.5 text-emerald-700">
+                <div className="rounded-2xl bg-emerald-100 p-2.5">
+                  <PackagePlus className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Add All Products to Inventory</h3>
+                  <p className="text-xs text-gray-500">Populate standard bar catalog with stock & barcodes</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isAddingAll) setIsAddAllModalOpen(false);
+                }}
+                disabled={isAddingAll}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-emerald-50/80 p-4 border border-emerald-200 text-xs text-emerald-900 space-y-2">
+              <div className="font-bold flex items-center justify-between">
+                <span className="flex items-center space-x-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>26 Standard Bar Products Ready</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-emerald-200 font-mono font-bold text-[10px]">
+                  All with Barcodes & Stock
+                </span>
+              </div>
+              <p className="text-emerald-800 leading-relaxed">
+                Includes popular Kenyan bar products across Beers (Tusker, Heineken, Guinness, White Cap, Balozi), Spirits (JW Black/Red, Jameson, Smirnoff, Chrome, Gilbeys), Ciders (Tusker Cider, Savanna), Soft Drinks, and Wines.
+              </p>
+            </div>
+
+            {/* Mode selection if products already exist */}
+            {products.length > 0 && (
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">
+                  Choose Addition Mode
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setAddAllMode('append')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      addAllMode === 'append'
+                        ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-600/20'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-gray-900">Append Missing</div>
+                    <div className="text-[11px] text-gray-500 mt-0.5">
+                      Keep your existing {products.length} products and only add standard items that are missing.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddAllMode('replace')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      addAllMode === 'replace'
+                        ? 'border-amber-600 bg-amber-50/50 ring-2 ring-amber-600/20'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-gray-900">Replace Fresh</div>
+                    <div className="text-[11px] text-gray-500 mt-0.5">
+                      Clear current catalog and load all 26 standard products fresh with opening stock.
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex space-x-3">
+              <button
+                type="button"
+                onClick={() => handleExecuteAddAll(products.length === 0 ? 'replace' : addAllMode)}
+                disabled={isAddingAll}
+                className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <PackagePlus className="w-4 h-4" />
+                <span>
+                  {isAddingAll
+                    ? 'Adding All to Inventory...'
+                    : `Add All Products to Inventory (${STANDARD_INVENTORY_PRODUCTS.length})`}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={isAddingAll}
+                onClick={() => setIsAddAllModalOpen(false)}
+                className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Selected Modal */}
+      {isRemoveSelectedModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center space-x-2.5 text-red-600">
+                <div className="rounded-full bg-red-100 p-2">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Remove Selected Products</h3>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isRemovingSelected) setIsRemoveSelectedModalOpen(false);
+                }}
+                disabled={isRemovingSelected}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600">
+              Are you sure you want to remove <strong className="text-gray-900">{selectedProductIds.size} selected product{selectedProductIds.size === 1 ? '' : 's'}</strong> from your inventory?
+            </p>
+
+            <div className="pt-2 flex space-x-3">
+              <button
+                type="button"
+                onClick={handleExecuteRemoveSelected}
+                disabled={isRemovingSelected}
+                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isRemovingSelected ? 'Removing...' : `Yes, Remove ${selectedProductIds.size} Products`}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isRemovingSelected}
+                onClick={() => setIsRemoveSelectedModalOpen(false)}
+                className="flex-1 rounded-xl border border-gray-300 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Stock Addition Modal */}
+      {isBulkStockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center space-x-2.5 text-amber-700">
+                <div className="rounded-2xl bg-amber-100 p-2">
+                  <Layers className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">
+                    {selectedProductIds.size > 0
+                      ? `Add Stock to ${selectedProductIds.size} Selected Products`
+                      : 'Add Stock to All Products'}
+                  </h3>
+                  <p className="text-xs text-gray-500">Bulk delivery stock replenishment</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isBulkStockProcessing) setIsBulkStockModalOpen(false);
+                }}
+                disabled={isBulkStockProcessing}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Quantity to Add to Each Product
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={bulkStockQty}
+                  onChange={(e) => setBulkStockQty(Math.max(1, Number(e.target.value)))}
+                  className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Reason / Delivery Note
+                </label>
+                <input
+                  type="text"
+                  value={bulkStockReason}
+                  onChange={(e) => setBulkStockReason(e.target.value)}
+                  placeholder="e.g. Delivery replenishment"
+                  className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex space-x-3">
+              <button
+                type="button"
+                onClick={handleExecuteBulkStock}
+                disabled={isBulkStockProcessing || bulkStockQty <= 0}
+                className="flex-1 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed py-3 text-sm font-bold text-white shadow-md shadow-amber-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <Layers className="w-4 h-4" />
+                <span>{isBulkStockProcessing ? 'Adding Stock...' : `Add +${bulkStockQty} to Each`}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isBulkStockProcessing}
+                onClick={() => setIsBulkStockModalOpen(false)}
+                className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all cursor-pointer"
               >
                 Cancel
               </button>

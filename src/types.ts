@@ -10,6 +10,7 @@ export interface UserProfile {
   businessId: string;
   status: 'active' | 'disabled' | 'deleted';
   createdAt: string;
+  pin?: string;
 }
 
 export interface BusinessConfig {
