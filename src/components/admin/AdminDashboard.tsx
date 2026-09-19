@@ -11,9 +11,10 @@ import {
 interface AdminDashboardProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
+  onNavigate?: (tab: string) => void;
 }
 
-export function AdminDashboard({ user, businessConfig }: AdminDashboardProps) {
+export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashboardProps) {
   const [stats, setStats] = useState({
     todaySales: 0,
     itemsSold: 0,
@@ -182,12 +183,25 @@ export function AdminDashboard({ user, businessConfig }: AdminDashboardProps) {
       {/* Title */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Admin Dashboard</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {user.role === 'manager' ? 'Manager Dashboard' : 'Admin Dashboard'}
+          </h2>
           <p className="text-sm text-gray-500">Overview of bar operations, sales, and live stock metrics</p>
         </div>
-        <div className="inline-flex items-center space-x-2 bg-amber-50 text-amber-800 px-4 py-2 rounded-xl text-xs font-bold border border-amber-200">
-          <ShieldCheck className="w-4 h-4 text-amber-600" />
-          <span>Active Business Day: {new Date().toISOString().split('T')[0]}</span>
+        <div className="flex items-center space-x-3 flex-wrap gap-2">
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('pos')}
+              className="inline-flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>Open POS (Sell)</span>
+            </button>
+          )}
+          <div className="inline-flex items-center space-x-2 bg-amber-50 text-amber-800 px-4 py-2 rounded-xl text-xs font-bold border border-amber-200">
+            <ShieldCheck className="w-4 h-4 text-amber-600" />
+            <span>Active Business Day: {new Date().toISOString().split('T')[0]}</span>
+          </div>
         </div>
       </div>
 

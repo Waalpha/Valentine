@@ -115,8 +115,8 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
     const currentQtyInCart = existingIndex >= 0 ? cart[existingIndex].quantity : 0;
     const requestedQty = currentQtyInCart + delta;
 
-    // Check available stock
-    const allowNegative = businessConfig?.allowNegativeStock ?? false;
+    // Check available stock (Default to true so sales are never blocked by stock levels)
+    const allowNegative = businessConfig?.allowNegativeStock ?? true;
     if (delta > 0 && !allowNegative) {
       if (product.currentStock !== undefined && requestedQty > product.currentStock) {
         const msg = `Insufficient Stock: Only ${product.currentStock} ${product.unitType || 'unit'}(s) available for "${product.name}". Cannot add more.`;
@@ -453,9 +453,13 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                     </div>
 
                     <div className="mt-3 flex items-center justify-between text-xs">
-                      <span className={`font-semibold ${isOutOfStock ? 'text-amber-700' : product.currentStock <= product.minStockLevel ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      <span className={`font-semibold ${isOutOfStock ? 'text-amber-800' : product.currentStock <= product.minStockLevel ? 'text-amber-600' : 'text-emerald-600'}`}>
                         Available: {product.currentStock} {product.unitType}s
-                        {isOutOfStock && <span className="ml-1 text-[10px] text-amber-600 font-normal">(Tap to sell)</span>}
+                        {isOutOfStock && (
+                          <span className="ml-1.5 text-[10px] text-emerald-800 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
+                            Sell Allowed
+                          </span>
+                        )}
                       </span>
                       {inCart && (
                         <span className="font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">

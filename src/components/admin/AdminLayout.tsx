@@ -3,7 +3,7 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { auth } from '../../lib/firebase';
 import { logAuditAction } from '../../lib/utils';
 import { 
-  LayoutDashboard, Package, Layers, Receipt, CalendarCheck, 
+  LayoutDashboard, ShoppingBag, Package, Layers, Receipt, CalendarCheck, 
   Users, ShieldAlert, Settings, LogOut, Wine, Printer 
 } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
@@ -19,18 +19,19 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onLogout, children }: AdminLayoutProps) {
   const handleSignOut = async () => {
-    await logAuditAction(user.uid, user.name, 'LOGOUT', 'Admin logged out');
+    await logAuditAction(user.uid, user.name, 'LOGOUT', `${user.role === 'manager' ? 'Manager' : 'Admin'} logged out`);
     await auth.signOut();
     onLogout();
   };
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'pos', label: 'POS Terminal (Sell)', icon: ShoppingBag },
     { id: 'products', label: 'Products', icon: Package },
     { id: 'stock', label: 'Stock & Additions', icon: Layers },
     { id: 'sales', label: 'Sales Reports', icon: Receipt },
     { id: 'closings', label: 'Daily Closings', icon: CalendarCheck },
-    { id: 'cashiers', label: 'Cashier Accounts', icon: Users },
+    { id: 'cashiers', label: 'Staff / Cashiers', icon: Users },
     { id: 'audit', label: 'Audit Logs', icon: ShieldAlert },
     { id: 'printer', label: 'Printer Settings', icon: Printer },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -49,7 +50,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
             <div>
               <h1 className="text-base font-bold text-white tracking-tight">{businessConfig?.name || 'Club Valentine'}</h1>
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                Admin Control
+                {user.role === 'manager' ? 'Manager Control' : 'Admin Control'}
               </span>
             </div>
           </div>

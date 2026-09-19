@@ -217,6 +217,16 @@ const DEFAULT_STAFF: UserProfile[] = [
     createdAt: new Date().toISOString()
   },
   {
+    uid: 'user-manager',
+    name: 'Bar Manager',
+    email: 'manager@Valentine.com',
+    role: 'manager',
+    businessId: DEFAULT_BUSINESS_ID,
+    status: 'active',
+    pin: '3333',
+    createdAt: new Date().toISOString()
+  },
+  {
     uid: 'user-mercy-cashier',
     name: 'Mercy',
     email: 'mercy@Valentine.com',
@@ -423,7 +433,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
         return;
       }
 
-      if (targetUser.role === 'admin' && ['1234', '0000', '9999'].includes(pinToVerify)) {
+      if ((targetUser.role === 'admin' || targetUser.role === 'manager') && ['1234', '0000', '9999', '3333'].includes(pinToVerify)) {
         completeLogin(targetUser);
         return;
       }
@@ -460,6 +470,12 @@ export function Login({ onLoginSuccess }: LoginProps) {
     if (pinToVerify === '1234' || pinToVerify === '0000' || pinToVerify === '9999') {
       const admin = knownUsers.find(u => u.role === 'admin' && u.status === 'active') || DEFAULT_STAFF[1];
       completeLogin(admin);
+      return;
+    }
+
+    if (pinToVerify === '3333') {
+      const manager = knownUsers.find(u => u.role === 'manager' && u.status === 'active') || DEFAULT_STAFF[2];
+      completeLogin(manager);
       return;
     }
 
@@ -888,6 +904,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
                               ? 'bg-amber-600 text-white shadow-sm'
                               : u.role === 'admin'
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : u.role === 'manager'
+                              ? 'bg-purple-100 text-purple-900 border border-purple-300'
                               : 'bg-blue-100 text-blue-900 border border-blue-300'
                           }`}>
                             {initials}

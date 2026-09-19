@@ -1,6 +1,6 @@
 import type { PrinterFontSettings } from './printer/printerTypes';
 
-export type UserRole = 'admin' | 'cashier';
+export type UserRole = 'admin' | 'manager' | 'cashier';
 
 export interface UserProfile {
   uid: string;

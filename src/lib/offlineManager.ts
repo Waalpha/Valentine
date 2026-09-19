@@ -287,7 +287,7 @@ export function deductLocalProductStock(items: { productId: string; quantity: nu
       if (item.productId.startsWith('custom-')) continue;
       const p = products.find(prod => prod.id === item.productId);
       if (p) {
-        p.currentStock = Math.max(0, (p.currentStock || 0) - item.quantity);
+        p.currentStock = (p.currentStock || 0) - item.quantity;
       }
     }
     cacheLocalProducts(products, tenantId);

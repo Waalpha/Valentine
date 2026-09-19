@@ -3,7 +3,7 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
-import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle, KeyRound } from 'lucide-react';
+import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle, KeyRound, Briefcase } from 'lucide-react';
 
 interface CashiersViewProps {
   user: UserProfile;
@@ -21,7 +21,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'admin' | 'cashier'>('cashier');
+  const [role, setRole] = useState<'admin' | 'manager' | 'cashier'>('cashier');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -233,8 +233,20 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                     <td className="p-4 font-bold text-gray-900">{u.name}</td>
                     <td className="p-4 text-gray-600 font-mono text-xs">{u.email}</td>
                     <td className="p-4">
-                      <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-bold ${u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {u.role === 'admin' ? <Shield className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                      <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-bold ${
+                        u.role === 'admin' 
+                          ? 'bg-amber-100 text-amber-800' 
+                          : u.role === 'manager'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {u.role === 'admin' ? (
+                          <Shield className="w-3.5 h-3.5" />
+                        ) : u.role === 'manager' ? (
+                          <Briefcase className="w-3.5 h-3.5" />
+                        ) : (
+                          <UserCheck className="w-3.5 h-3.5" />
+                        )}
                         <span className="capitalize">{u.role}</span>
                       </span>
                     </td>
@@ -380,6 +392,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm bg-white focus:border-amber-600 focus:outline-none"
                 >
                   <option value="cashier">Cashier</option>
+                  <option value="manager">Manager</option>
                   <option value="admin">Admin / Owner</option>
                 </select>
               </div>

@@ -202,6 +202,13 @@ export default function App() {
         <AdminDashboard
           user={userProfile}
           businessConfig={businessConfig}
+          onNavigate={(tab) => setAdminTab(tab)}
+        />
+      )}
+      {adminTab === 'pos' && (
+        <RecordSaleView
+          user={userProfile}
+          businessConfig={businessConfig}
         />
       )}
       {adminTab === 'products' && (

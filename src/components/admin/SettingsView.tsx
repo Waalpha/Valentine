@@ -24,7 +24,8 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     closingTime: '23:59',
     lowStockThreshold: 10,
     receiptHeader: 'CLUB VALENTINE',
-    receiptFooter: 'Thank you! Please drink responsibly.'
+    receiptFooter: 'Thank you! Please drink responsibly.',
+    allowNegativeStock: true
   });
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -182,6 +183,24 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
               onChange={(e) => setFormData({ ...formData, receiptFooter: e.target.value })}
               className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
             />
+          </div>
+
+          <div className="sm:col-span-2 rounded-2xl bg-amber-50/70 border border-amber-200 p-4 flex items-center justify-between">
+            <div className="pr-4">
+              <h4 className="text-sm font-bold text-gray-900">Allow Selling Out-of-Stock Items (Negative Stock)</h4>
+              <p className="text-xs text-gray-600 mt-0.5">
+                When enabled, managers and cashiers can record sales even if products have zero or negative stock on hand. The system continues tracking sales and decrements stock into negative until restocked.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={formData.allowNegativeStock ?? true}
+                onChange={(e) => setFormData({ ...formData, allowNegativeStock: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
           </div>
         </div>
 
