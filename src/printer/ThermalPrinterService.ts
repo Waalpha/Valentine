@@ -2,7 +2,7 @@ import { PrinterType, PrinterDevice, PrinterConnectionState, PrinterFontSettings
 import { UsbPrinterDriver } from './UsbPrinterDriver';
 import { BluetoothPrinterDriver } from './BluetoothPrinterDriver';
 import { EscPosFormatter } from './EscPosFormatter';
-import { Sale, Product, BusinessConfig } from '../types';
+import { Sale, BusinessConfig } from '../types';
 
 export class ThermalPrinterService {
   private static instance: ThermalPrinterService;
@@ -162,33 +162,6 @@ export class ThermalPrinterService {
     fontSettings?: PrinterFontSettings
   ): Promise<void> {
     const data = EscPosFormatter.formatSaleReceipt(sale, businessConfig, fontSettings);
-    await this.sendData(data);
-  }
-
-  public async printBarcodeLabels(
-    product: Product,
-    copies: number = 1,
-    options?: {
-      showPrice?: boolean;
-      showBusinessName?: boolean;
-      businessName?: string;
-      currency?: string;
-    }
-  ): Promise<void> {
-    const data = EscPosFormatter.formatBarcodeLabels(product, copies, options);
-    await this.sendData(data);
-  }
-
-  public async printCatalogBarcodeLabels(
-    items: Array<{ product: Product; copies: number }>,
-    options?: {
-      showPrice?: boolean;
-      showBusinessName?: boolean;
-      businessName?: string;
-      currency?: string;
-    }
-  ): Promise<void> {
-    const data = EscPosFormatter.formatCatalogBarcodeLabels(items, options);
     await this.sendData(data);
   }
 

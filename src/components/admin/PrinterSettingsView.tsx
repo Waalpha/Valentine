@@ -14,8 +14,7 @@ import { thermalPrinterService } from '../../printer/ThermalPrinterService';
 import { ThermalReceipt } from '../../printer/ThermalReceipt';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { logAuditAction } from '../../lib/utils';
-import { isAppInsideIframe, printBarcodeDirectly } from '../../lib/barcodePrintService';
+import { logAuditAction, isAppInsideIframe } from '../../lib/utils';
 import { 
   Printer, Usb, Bluetooth, CheckCircle2, AlertCircle, RefreshCw, Power, 
   Type, Bold, Italic, Sliders, Eye, RotateCcw, Save, Check,
@@ -105,86 +104,6 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     } catch (err: any) {
       setError(err.message || 'Test print failed');
       refreshState();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTestBarcodePrint = async () => {
-    setLoading(true);
-    setError(null);
-    setActionMessage(null);
-    try {
-      setActionMessage('Printing sample barcode label...');
-      const sampleProduct = {
-        id: 'sample-001',
-        name: 'Test Product 500ml',
-        sellingPrice: 250,
-        barcode: '6161101234567',
-        categoryName: 'Drinks'
-      } as any;
-      await thermalPrinterService.printBarcodeLabels(sampleProduct, 1, {
-        showPrice: true,
-        showBusinessName: true,
-        businessName: businessConfig?.name || 'Club Valentine Bar POS',
-        currency: businessConfig?.currency || 'KSh'
-      });
-      setActionMessage('Test barcode label printed successfully!');
-      refreshState();
-    } catch (err: any) {
-      setError(err.message || 'Barcode test print failed');
-      refreshState();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTestSystemBarcode = async () => {
-    setLoading(true);
-    setError(null);
-    setActionMessage(null);
-    try {
-      const container = document.createElement('div');
-      container.innerHTML = `
-        <div class="barcode-label-card" style="padding: 6px 4px; text-align: center; border: 1px dashed #666; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;">
-          <div class="business-name" style="font-size: 8px; font-weight: 900; text-transform: uppercase;">${businessConfig?.name || 'Club Valentine Bar POS'}</div>
-          <div class="product-name" style="font-size: 10px; font-weight: 700; margin: 2px 0;">Test Barcode Label 500ml</div>
-          <div class="barcode-wrapper" style="margin: 4px 0;">
-            <svg id="system-test-barcode-svg"></svg>
-          </div>
-          <div class="price-tag" style="font-size: 11px; font-weight: 900;">${businessConfig?.currency || 'KSh'} 250</div>
-        </div>
-      `;
-      document.body.appendChild(container);
-      
-      const svg = container.querySelector('#system-test-barcode-svg');
-      if (svg) {
-        // Render barcode using JsBarcode
-        const JsBarcode = (await import('jsbarcode')).default;
-        JsBarcode(svg, '6161101234567', {
-          format: 'CODE128',
-          width: 1.5,
-          height: 36,
-          displayValue: true,
-          fontSize: 10,
-          font: 'monospace',
-          fontOptions: 'bold',
-          textAlign: 'center',
-          textPosition: 'bottom',
-          margin: 0
-        });
-      }
-
-      await printBarcodeDirectly(container, {
-        title: 'Sample Barcode Test Label',
-        layout: 'roll58',
-        columns: 1
-      });
-
-      container.remove();
-      setActionMessage('System Print dialog opened! Select your thermal printer (POS-58 or POS-80) to print.');
-    } catch (err: any) {
-      setError(err.message || 'System barcode test print failed');
     } finally {
       setLoading(false);
     }
@@ -297,7 +216,7 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
           <div>
             <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Thermal Printer & Receipt Formatting</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Configure thermal barcode and receipt printing via installed Windows/Mac driver or direct USB/Bluetooth.
+              Configure thermal receipt printing via installed Windows/Mac driver or direct USB/Bluetooth.
             </p>
           </div>
           {isAppInsideIframe() && (
@@ -546,17 +465,6 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
             <div className="flex flex-wrap gap-3 pt-1">
               <button
                 type="button"
-                onClick={handleTestSystemBarcode}
-                disabled={loading}
-                className="flex items-center space-x-2 rounded-2xl bg-amber-500 hover:bg-amber-400 px-5 py-2.5 text-xs sm:text-sm font-bold text-slate-950 shadow-sm transition-all cursor-pointer disabled:opacity-50"
-                title="Test printing a sample barcode label via your installed printer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Test System Barcode (58mm Roll)</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => window.print()}
                 disabled={loading}
                 className="flex items-center space-x-2 rounded-2xl bg-white hover:bg-gray-50 border border-gray-300 px-4 py-2.5 text-xs sm:text-sm font-bold text-gray-700 shadow-xs transition-all cursor-pointer disabled:opacity-50"
@@ -669,17 +577,6 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
               >
                 <Printer className="w-4 h-4" />
                 <span>Test Receipt</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTestBarcodePrint}
-                disabled={loading || state.status !== 'connected'}
-                className="flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Print a test barcode label on thermal roll"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Test Barcode</span>
               </button>
             </div>
           </div>

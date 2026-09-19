@@ -8,6 +8,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Checks if the app is currently running inside an iframe.
+ */
+export function isAppInsideIframe(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export function formatCurrency(amount: number, currencyCode: string = 'KSh'): string {
   return `${currencyCode} ${amount.toLocaleString()}`;
 }

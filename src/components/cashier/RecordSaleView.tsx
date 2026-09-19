@@ -17,18 +17,11 @@ import {
   CircleDollarSign,
   ArrowLeft,
   X,
-  Barcode,
-  Camera,
-  ScanLine,
   Zap,
   Check,
-  RotateCcw,
-  Volume2
+  RotateCcw
 } from 'lucide-react';
 import { ReceiptModal } from '../common/ReceiptModal';
-import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
-import { UnknownBarcodeModal } from '../common/UnknownBarcodeModal';
-import { posAudio } from '../../lib/barcodeUtils';
 import {
   saveSaleLocallyAndQueue,
   cacheLocalProducts,
@@ -41,10 +34,9 @@ import {
 interface RecordSaleViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  onNavigateToProducts?: (prefillBarcode?: string) => void;
 }
 
-export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: RecordSaleViewProps) {
+export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const currency = businessConfig?.currency || 'KSh';
   const [products, setProducts] = useState<Product[]>([]);
@@ -52,16 +44,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<SaleItem[]>([]);
-  
-  // Barcode scanner states
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const barcodeInputRef = useRef<HTMLInputElement>(null);
-  const [showCameraScanner, setShowCameraScanner] = useState(false);
-  const [showUnknownBarcodeModal, setShowUnknownBarcodeModal] = useState(false);
-  const [unknownBarcode, setUnknownBarcode] = useState('');
-  const [wasCameraOpenWhenScanned, setWasCameraOpenWhenScanned] = useState(false);
-  const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error'; text: string; sub?: string } | null>(null);
-  const scannerBufferRef = useRef<{ buffer: string; lastTime: number }>({ buffer: '', lastTime: 0 });
 
   // Payment states
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
@@ -83,59 +65,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
   useEffect(() => {
     fetchProductsAndCategories();
   }, []);
-
-  // Autofocus barcode input on mount and recover focus when clicking blank POS areas
-  useEffect(() => {
-    barcodeInputRef.current?.focus();
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const isInteractive = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName);
-      if (!isInteractive) {
-        barcodeInputRef.current?.focus();
-      }
-    };
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  // Global hardware scanner listener: captures rapid keystroke bursts from USB / Bluetooth scanners
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement as HTMLElement | null;
-      // Do not intercept if user is purposefully typing in another form field
-      const isOtherInput = activeEl && activeEl !== barcodeInputRef.current && (
-        activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT'
-      );
-      if (isOtherInput) return;
-
-      const now = Date.now();
-      const timeDiff = now - scannerBufferRef.current.lastTime;
-      scannerBufferRef.current.lastTime = now;
-
-      if (e.key === 'Enter') {
-        if (scannerBufferRef.current.buffer.length >= 3) {
-          e.preventDefault();
-          const code = scannerBufferRef.current.buffer;
-          scannerBufferRef.current.buffer = '';
-          processBarcode(code);
-        }
-        return;
-      }
-
-      if (e.key.length === 1) {
-        // Hardware scanners burst keystrokes < 50ms apart
-        if (timeDiff < 60 || scannerBufferRef.current.buffer.length === 0) {
-          scannerBufferRef.current.buffer += e.key;
-        } else {
-          scannerBufferRef.current.buffer = e.key;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [products, cart, businessConfig]);
 
   async function fetchProductsAndCategories() {
     // 1. Instant load from offline cache scoped to tenant
@@ -192,7 +121,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
       if (product.currentStock !== undefined && requestedQty > product.currentStock) {
         const msg = `Insufficient Stock: Only ${product.currentStock} ${product.unitType || 'unit'}(s) available for "${product.name}". Cannot add more.`;
         setError(msg);
-        posAudio.playError();
         return false;
       }
     }
@@ -217,7 +145,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
         {
           productId: product.id,
           productName: product.name,
-          barcode: product.barcode,
           quantity: 1,
           unitPrice: product.sellingPrice,
           totalAmount: product.sellingPrice
@@ -225,258 +152,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
       ]);
     }
     return true;
-  };
-
-  /**
-   * Core barcode scanner processor:
-   * Handles USB / Bluetooth / Camera / Manual barcode entries.
-   */
-  const processBarcode = (rawBarcode: string) => {
-    const clean = String(rawBarcode ?? '').trim();
-    if (!clean) return;
-
-    // Reset input immediately for rapid successive scans
-    setBarcodeInput('');
-    if (barcodeInputRef.current) {
-      barcodeInputRef.current.value = '';
-      barcodeInputRef.current.focus();
-    }
-
-    // Search current tenant's products: match barcode first, or match exact ID
-    let found = products.find(p =>
-      p.barcode != null && String(p.barcode).trim().toLowerCase() === clean.toLowerCase()
-    );
-
-    if (!found) {
-      found = products.find(p => p.id.toLowerCase() === clean.toLowerCase());
-    }
-
-    if (found) {
-      // Stock check
-      const inCart = cart.find(item => item.productId === found!.id);
-      const currentInCart = inCart?.quantity || 0;
-      const allowNegative = businessConfig?.allowNegativeStock ?? false;
-
-      if (!allowNegative && (found.currentStock <= 0 || (found.currentStock - currentInCart <= 0))) {
-        posAudio.playError();
-        const msg = `Out of Stock: "${found.name}" has 0 units available. Negative stock sales are disabled in Settings.`;
-        setError(msg);
-        setScanFeedback({
-          type: 'error',
-          text: `Out of Stock: ${found.name}`,
-          sub: '0 units remaining — cannot sell'
-        });
-        setTimeout(() => setScanFeedback(null), 4000);
-        return;
-      }
-
-      // Add to cart / increment quantity
-      const added = addToCart(found, 1);
-      if (added) {
-        posAudio.playSuccess();
-        const newQty = currentInCart + 1;
-        setScanFeedback({
-          type: 'success',
-          text: `Added: ${found.name} (+1)`,
-          sub: `Price: ${formatCurrency(found.sellingPrice, currency)} | Cart Qty: ${newQty}`
-        });
-        setTimeout(() => setScanFeedback(null), 3500);
-      }
-    } else {
-      // Barcode not found in current inventory: prompt cashier to set price!
-      const wasCamera = showCameraScanner;
-      if (showCameraScanner) {
-        setShowCameraScanner(false);
-      }
-      setWasCameraOpenWhenScanned(wasCamera);
-      posAudio.playError();
-      setUnknownBarcode(clean);
-      setShowUnknownBarcodeModal(true);
-      setScanFeedback({
-        type: 'error',
-        text: `Uncatalogued Product: "${clean}"`,
-        sub: 'Please enter price to add to cart'
-      });
-      setTimeout(() => setScanFeedback(null), 4500);
-    }
-  };
-
-  /**
-   * Cashier adds uncatalogued product to cart AND saves it permanently to inventory
-   */
-  const handleSaveAndAddToCart = async (params: {
-    name: string;
-    barcode: string;
-    sellingPrice: number;
-    buyingPrice?: number;
-    categoryId: string;
-    categoryName: string;
-    unitType: Product['unitType'];
-    openingStock: number;
-    quantity: number;
-    reopenCamera?: boolean;
-  }) => {
-    const cleanBarcode = params.barcode.trim();
-    const productId = 'prod-' + Date.now();
-    const now = new Date().toISOString();
-    const newProduct: Product = {
-      id: productId,
-      name: params.name.trim() || `Item #${cleanBarcode.slice(-4)}`,
-      barcode: cleanBarcode || undefined,
-      categoryId: params.categoryId || (categories[0] ? categories[0].id : 'cat-general'),
-      categoryName: params.categoryName || (categories[0] ? categories[0].name : 'General'),
-      unitType: params.unitType || 'Bottle',
-      buyingPrice: params.buyingPrice || Math.round(params.sellingPrice * 0.7),
-      sellingPrice: params.sellingPrice,
-      openingStock: params.openingStock || 50,
-      currentStock: params.openingStock || 50,
-      stockAdded: 0,
-      minStockLevel: 10,
-      status: 'active',
-      businessId: tenantId,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    // 1. Immediately update in-memory products list & local cache
-    const updatedProducts = [newProduct, ...products];
-    setProducts(updatedProducts);
-    cacheLocalProducts(updatedProducts, tenantId);
-
-    // 2. Add to active cart with entered quantity
-    addToCart(newProduct, params.quantity);
-
-    // 3. Play high-frequency scanner beep
-    posAudio.playSuccessBeep();
-
-    setScanFeedback({
-      type: 'success',
-      text: `Added & Saved: ${newProduct.name} (+${params.quantity})`,
-      sub: `Price: ${formatCurrency(newProduct.sellingPrice, currency)} | Saved to inventory`
-    });
-    setTimeout(() => setScanFeedback(null), 3500);
-
-    // 4. Close modal
-    setShowUnknownBarcodeModal(false);
-
-    if (params.reopenCamera) {
-      setShowCameraScanner(true);
-    }
-
-    // 5. Persist to Firestore in background
-    try {
-      const prodRef = doc(db, 'businesses', tenantId, 'products', productId);
-      await setDoc(prodRef, newProduct);
-      await logAuditAction(
-        user.uid,
-        user.name,
-        'PRODUCT_CREATED_AT_POS',
-        `Added new uncatalogued product "${newProduct.name}" at POS for ${formatCurrency(newProduct.sellingPrice, currency)} (Barcode: ${cleanBarcode})`,
-        productId
-      );
-    } catch (e) {
-      console.warn('Could not save product to Firestore (stored locally):', e);
-    }
-  };
-
-  /**
-   * Cashier adds uncatalogued product to cart for one-time sale without saving to catalog
-   */
-  const handleQuickAddToCart = (params: {
-    name: string;
-    barcode: string;
-    price: number;
-    quantity: number;
-    reopenCamera?: boolean;
-  }) => {
-    const qty = params.quantity > 0 ? params.quantity : 1;
-    const price = params.price;
-    const cleanBarcode = params.barcode.trim();
-    const itemName = params.name.trim() || `Scanned Item #${cleanBarcode.slice(-4)}`;
-
-    const customItem: SaleItem = {
-      productId: 'custom-barcode-' + Date.now(),
-      productName: itemName,
-      barcode: cleanBarcode,
-      quantity: qty,
-      unitPrice: price,
-      totalAmount: qty * price
-    };
-
-    setCart(prev => [...prev, customItem]);
-    posAudio.playSuccessBeep();
-
-    setScanFeedback({
-      type: 'success',
-      text: `Added: ${itemName} (+${qty})`,
-      sub: `Price: ${formatCurrency(price, currency)} (Quick Item)`
-    });
-    setTimeout(() => setScanFeedback(null), 3500);
-
-    setShowUnknownBarcodeModal(false);
-
-    if (params.reopenCamera) {
-      setShowCameraScanner(true);
-    }
-  };
-
-  /**
-   * Cashier links scanned barcode to an existing inventory item
-   */
-  const handleLinkToExistingProduct = async (
-    existingProduct: Product,
-    updatedPrice?: number,
-    quantity: number = 1,
-    reopenCamera?: boolean
-  ) => {
-    const cleanBarcode = unknownBarcode.trim();
-    const now = new Date().toISOString();
-    const newPrice = updatedPrice && updatedPrice > 0 ? updatedPrice : existingProduct.sellingPrice;
-
-    const updatedProduct: Product = {
-      ...existingProduct,
-      barcode: cleanBarcode,
-      sellingPrice: newPrice,
-      updatedAt: now
-    };
-
-    const updatedProducts = products.map(p => p.id === existingProduct.id ? updatedProduct : p);
-    setProducts(updatedProducts);
-    cacheLocalProducts(updatedProducts, tenantId);
-
-    addToCart(updatedProduct, quantity);
-    posAudio.playSuccessBeep();
-
-    setScanFeedback({
-      type: 'success',
-      text: `Barcode Linked: ${updatedProduct.name}`,
-      sub: `Barcode ${cleanBarcode} saved at ${formatCurrency(newPrice, currency)}`
-    });
-    setTimeout(() => setScanFeedback(null), 3500);
-
-    setShowUnknownBarcodeModal(false);
-
-    if (reopenCamera) {
-      setShowCameraScanner(true);
-    }
-
-    try {
-      const prodRef = doc(db, 'businesses', tenantId, 'products', existingProduct.id);
-      await updateDoc(prodRef, {
-        barcode: cleanBarcode,
-        sellingPrice: newPrice,
-        updatedAt: now
-      });
-      await logAuditAction(
-        user.uid,
-        user.name,
-        'PRODUCT_BARCODE_LINKED',
-        `Linked barcode "${cleanBarcode}" to existing product "${updatedProduct.name}" at POS`,
-        existingProduct.id
-      );
-    } catch (e) {
-      console.warn('Could not update product barcode in Firestore:', e);
-    }
   };
 
   const updateCartQty = (productId: string, newQty: number) => {
@@ -632,8 +307,7 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q ||
       p.name.toLowerCase().includes(q) ||
-      p.categoryName.toLowerCase().includes(q) ||
-      (p.barcode != null && String(p.barcode).toLowerCase().includes(q));
+      p.categoryName.toLowerCase().includes(q);
     return matchesCat && matchesSearch;
   });
 
@@ -663,144 +337,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
 
   return (
     <div className="space-y-4 pb-28 lg:pb-6">
-      {/* ================= PROMINENT BARCODE SCANNER TOP BAR ================= */}
-      <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-3 sm:p-4 text-white shadow-lg border border-slate-700">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          
-          {/* Left: Hardware Scanner Status */}
-          <div className="flex items-center space-x-3 shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-400">
-              <Barcode className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm font-bold text-white tracking-wide">Barcode Scanner</span>
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>USB / BT Ready</span>
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                Auto-focused • Supports laser scanners, keyboard & camera
-              </p>
-            </div>
-          </div>
-
-          {/* Center: Prominent Barcode Search & Scan Input */}
-          <div className="flex-1 max-w-2xl relative">
-            <div className="relative flex items-center">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-amber-400">
-                <ScanLine className="w-5 h-5 animate-pulse" />
-              </div>
-              <input
-                ref={barcodeInputRef}
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    processBarcode(barcodeInput);
-                  }
-                }}
-                placeholder="Scan barcode with handheld scanner or type barcode/SKU & hit Enter..."
-                className="w-full rounded-xl bg-slate-950/90 border-2 border-amber-500/80 focus:border-amber-400 py-2.5 sm:py-3 pl-11 pr-24 text-sm font-mono text-white placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500/20 transition-all shadow-inner"
-              />
-              <div className="absolute right-1.5 flex items-center space-x-1">
-                {barcodeInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBarcodeInput('');
-                      barcodeInputRef.current?.focus();
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 text-xs"
-                    title="Clear input"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => processBarcode(barcodeInput)}
-                  disabled={!barcodeInput.trim()}
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-xs rounded-lg transition-all shadow-sm"
-                >
-                  Scan
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Camera Scanner Trigger & High Frequency Beep Sound Test */}
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                posAudio.unlock();
-                posAudio.testSupermarketBeep();
-                const hz = posAudio.getFrequency();
-                setScanFeedback({
-                  type: 'success',
-                  text: `High Frequency Beep (${hz} Hz)`,
-                  sub: 'Crisp supermarket register laser scan tone active'
-                });
-                setTimeout(() => setScanFeedback(null), 2500);
-              }}
-              className="px-3 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
-              title={`Test High Frequency Beep (${posAudio.getFrequency()} Hz) - Authentic supermarket laser scan`}
-            >
-              <Volume2 className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline font-mono">{posAudio.getFrequency()}Hz</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                posAudio.unlock();
-                setShowCameraScanner(true);
-              }}
-              className="flex-1 md:flex-initial px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-bold transition-all flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
-              title="Open camera to scan barcode"
-            >
-              <Camera className="w-4 h-4 text-amber-400" />
-              <span>Camera Scan</span>
-            </button>
-          </div>
-
-        </div>
-
-        {/* Real-time Scan Feedback Toast */}
-        {scanFeedback && (
-          <div
-            className={`mt-3 p-2.5 rounded-xl flex items-center justify-between transition-all ${
-              scanFeedback.type === 'success'
-                ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-200'
-                : 'bg-red-500/20 border border-red-500/50 text-red-200'
-            }`}
-          >
-            <div className="flex items-center space-x-2">
-              {scanFeedback.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-              )}
-              <div className="text-xs">
-                <span className="font-bold">{scanFeedback.text}</span>
-                {scanFeedback.sub && <span className="ml-2 opacity-80 font-normal">({scanFeedback.sub})</span>}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setScanFeedback(null)}
-              className="text-slate-400 hover:text-white p-1 rounded"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* Mobile Top Segment Switcher (Catalog vs Cart & Payment) */}
       <div className="lg:hidden flex rounded-2xl bg-slate-900 p-1.5 shadow-md sticky top-16 z-30">
         <button
@@ -908,12 +444,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
                           <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
                             {product.categoryName}
                           </span>
-                          {product.barcode && (
-                            <span className="inline-flex items-center space-x-0.5 font-mono text-[9px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                              <Barcode className="w-2.5 h-2.5 inline" />
-                              <span>{product.barcode}</span>
-                            </span>
-                          )}
                         </div>
                         <h4 className="font-bold text-gray-900 text-base">{product.name}</h4>
                       </div>
@@ -1023,11 +553,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
                     <div className="flex-1 pr-2">
                       <div className="flex items-center space-x-1.5">
                         <h5 className="font-semibold text-gray-900 text-xs sm:text-sm">{item.productName}</h5>
-                        {item.barcode && (
-                          <span className="font-mono text-[9px] text-gray-500 bg-gray-200/80 px-1.5 py-0.5 rounded border border-gray-300">
-                            #{item.barcode}
-                          </span>
-                        )}
                       </div>
                       <p className="text-[11px] text-gray-500">{formatCurrency(item.unitPrice, currency)} each</p>
                     </div>
@@ -1503,49 +1028,6 @@ export function RecordSaleView({ user, businessConfig, onNavigateToProducts }: R
           sale={successSale}
           businessConfig={businessConfig}
           onClose={() => setSuccessSale(null)}
-        />
-      )}
-
-      {/* Camera Barcode Scanner Modal */}
-      {showCameraScanner && (
-        <CameraBarcodeScanner
-          isOpen={true}
-          onScan={(scannedCode) => {
-            processBarcode(scannedCode);
-          }}
-          onScanSuccess={(scannedCode) => {
-            processBarcode(scannedCode);
-          }}
-          onClose={() => setShowCameraScanner(false)}
-          cartCount={cart.reduce((s, i) => s + i.quantity, 0)}
-          cartTotal={cart.reduce((s, i) => s + i.totalAmount, 0)}
-          currency={currency}
-          allProducts={products}
-        />
-      )}
-
-      {/* Unknown Barcode / Add Price Modal */}
-      {showUnknownBarcodeModal && (
-        <UnknownBarcodeModal
-          isOpen={true}
-          barcode={unknownBarcode}
-          currency={currency}
-          categories={categories}
-          allProducts={products}
-          wasCameraOpen={wasCameraOpenWhenScanned}
-          onClose={() => {
-            setShowUnknownBarcodeModal(false);
-            if (wasCameraOpenWhenScanned) {
-              setShowCameraScanner(true);
-            }
-          }}
-          onSaveAndAddToCart={handleSaveAndAddToCart}
-          onQuickAddToCart={handleQuickAddToCart}
-          onLinkToExistingProduct={handleLinkToExistingProduct}
-          onNavigateToProducts={onNavigateToProducts ? () => {
-            setShowUnknownBarcodeModal(false);
-            onNavigateToProducts(unknownBarcode);
-          } : undefined}
         />
       )}
     </div>

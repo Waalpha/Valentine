@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { thermalPrinterService } from '../../printer/ThermalPrinterService';
 import { PrinterConnectionState, PrinterType } from '../../printer/printerTypes';
 import { BusinessConfig } from '../../types';
-import { isAppInsideIframe } from '../../lib/barcodePrintService';
+import { isAppInsideIframe } from '../../lib/utils';
 import { 
   Printer, 
   Usb, 
@@ -165,7 +165,7 @@ export const ThermalPrinterBar: React.FC<ThermalPrinterBarProps> = ({
 
             <p className="text-[11px] text-slate-300 mt-0.5 truncate max-w-xs sm:max-w-md">
               {isConnected
-                ? `${state.device?.name || 'Thermal POS Printer'} • Ready for ESC/POS instant barcode printing`
+                ? `${state.device?.name || 'Thermal POS Printer'} • Ready for ESC/POS instant receipt printing`
                 : 'Installed in Windows/Mac? System Thermal Print prints to all drivers. Or connect USB/BT below for raw control.'}
             </p>
           </div>

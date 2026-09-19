@@ -3,13 +3,7 @@ import { UserProfile, BusinessConfig, Product, Category } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
-import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Barcode, Printer, Sparkles, Camera, PackagePlus, CheckCircle2, Layers, RefreshCw, AlertTriangle } from 'lucide-react';
-import { BarcodeSvg } from '../common/BarcodeSvg';
-import { PrintBarcodeLabelModal } from '../common/PrintBarcodeLabelModal';
-import { PrintCatalogLabelsModal } from '../common/PrintCatalogLabelsModal';
-import { AssignBarcodesModal } from './AssignBarcodesModal';
-import { CameraBarcodeScanner } from '../common/CameraBarcodeScanner';
-import { generateBarcode, isBarcodeUniqueWithinTenant } from '../../lib/barcodeUtils';
+import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Sparkles, PackagePlus, CheckCircle2, Layers, RefreshCw, AlertTriangle } from 'lucide-react';
 import { cacheLocalProducts, getLocalCachedProducts } from '../../lib/offlineManager';
 import { 
   addAllProductsToInventory, 
@@ -21,11 +15,9 @@ import {
 interface ProductsViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  initialBarcode?: string | null;
-  onClearInitialBarcode?: () => void;
 }
 
-export function ProductsView({ user, businessConfig, initialBarcode, onClearInitialBarcode }: ProductsViewProps) {
+export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -37,10 +29,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [labelModalProduct, setLabelModalProduct] = useState<Product | null>(null);
-  const [isAssignBarcodesModalOpen, setIsAssignBarcodesModalOpen] = useState(false);
-  const [isCatalogLabelsModalOpen, setIsCatalogLabelsModalOpen] = useState(false);
-  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
   // Add / Remove All to Inventory States
   const [isAddAllModalOpen, setIsAddAllModalOpen] = useState(false);
@@ -67,7 +55,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
 
   const [formData, setFormData] = useState({
     name: '',
-    barcode: '',
     categoryId: '',
     unitType: 'Bottle' as Product['unitType'],
     buyingPrice: 0,
@@ -82,27 +69,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     fetchProductsAndCategories();
   }, []);
 
-  useEffect(() => {
-    if (initialBarcode != null && String(initialBarcode).trim()) {
-      setEditingProduct(null);
-      setFormData({
-        name: '',
-        barcode: String(initialBarcode).trim(),
-        categoryId: categories[0]?.id || '',
-        unitType: 'Bottle',
-        buyingPrice: 0,
-        sellingPrice: 0,
-        openingStock: 0,
-        currentStock: 0,
-        minStockLevel: 10
-      });
-      setIsModalOpen(true);
-      if (onClearInitialBarcode) {
-        onClearInitialBarcode();
-      }
-    }
-  }, [initialBarcode, categories]);
-
   async function fetchProductsAndCategories() {
     try {
       const prodRef = collection(db, 'businesses', tenantId, 'products');
@@ -112,8 +78,7 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         const data = d.data();
         prods.push({ 
           id: d.id, 
-          ...data,
-          barcode: data.barcode != null ? String(data.barcode).trim() : undefined
+          ...data
         } as Product);
       });
       setProducts(prods);
@@ -145,14 +110,13 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
       alert("No products to export.");
       return;
     }
-    const headers = ['id', 'name', 'barcode', 'categoryId', 'categoryName', 'unitType', 'buyingPrice', 'sellingPrice', 'openingStock', 'currentStock', 'minStockLevel'];
+    const headers = ['id', 'name', 'categoryId', 'categoryName', 'unitType', 'buyingPrice', 'sellingPrice', 'openingStock', 'currentStock', 'minStockLevel'];
     const csvRows = [headers.join(',')];
 
     products.forEach(p => {
       const row = [
         p.id,
         `"${(p.name || '').replace(/"/g, '""')}"`,
-        `"${(p.barcode || '').replace(/"/g, '""')}"`,
         p.categoryId || 'cat-beer',
         `"${(p.categoryName || 'Beers').replace(/"/g, '""')}"`,
         p.unitType || 'Bottle',
@@ -193,7 +157,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         // Parse header
         const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
         const nameIdx = header.indexOf('name');
-        const barcodeIdx = header.indexOf('barcode');
         const catIdIdx = header.indexOf('categoryId');
         const catNameIdx = header.indexOf('categoryName');
         const unitIdx = header.indexOf('unitType');
@@ -231,7 +194,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
           cleanRow.push(currentVal.trim().replace(/^"|"$/g, ''));
 
           const name = (nameIdx !== -1 && cleanRow[nameIdx]) ? cleanRow[nameIdx] : `Product ${i}`;
-          const barcode = (barcodeIdx !== -1 && cleanRow[barcodeIdx]) ? cleanRow[barcodeIdx] : undefined;
           const categoryId = (catIdIdx !== -1 && cleanRow[catIdIdx]) ? cleanRow[catIdIdx] : categories[0]?.id || 'cat-beer';
           const categoryName = (catNameIdx !== -1 && cleanRow[catNameIdx]) ? cleanRow[catNameIdx] : 'Beers';
           const unitType = (unitIdx !== -1 && cleanRow[unitIdx]) ? cleanRow[unitIdx] as Product['unitType'] : 'Bottle';
@@ -244,7 +206,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
           const newProd: Product = {
             id: productId,
             name,
-            barcode,
             categoryId,
             categoryName,
             unitType: ['Bottle', 'Cans', 'Tot', 'Pint', 'Pitcher', 'Glass', 'Packet', 'Piece'].includes(unitType) ? unitType : 'Bottle',
@@ -412,11 +373,10 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     }
   };
 
-  const handleOpenAddModal = (initialBarcode?: string) => {
+  const handleOpenAddModal = () => {
     setEditingProduct(null);
     setFormData({
       name: '',
-      barcode: initialBarcode != null ? String(initialBarcode).trim() : '',
       categoryId: categories[0]?.id || 'cat-beer',
       unitType: 'Bottle',
       buyingPrice: 150,
@@ -433,7 +393,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     setEditingProduct(product);
     setFormData({
       name: product.name || '',
-      barcode: product.barcode != null ? String(product.barcode).trim() : '',
       categoryId: product.categoryId,
       unitType: product.unitType,
       buyingPrice: product.buyingPrice || 0,
@@ -446,30 +405,11 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     setIsModalOpen(true);
   };
 
-  const handleAutoGenerateBarcode = () => {
-    const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
-    const newCode = generateBarcode('CODE128', existingCodes);
-    setFormData(prev => ({ ...prev, barcode: newCode }));
-  };
-
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
       setError('Product name is required');
       return;
-    }
-
-    const cleanBarcode = String(formData.barcode ?? '').trim();
-    if (cleanBarcode) {
-      const { isUnique, conflictProduct } = isBarcodeUniqueWithinTenant(
-        cleanBarcode,
-        editingProduct?.id || null,
-        products
-      );
-      if (!isUnique) {
-        setError(`Duplicate Barcode: Barcode "${cleanBarcode}" is already assigned to "${conflictProduct?.name}". Barcodes must be unique within your business.`);
-        return;
-      }
     }
 
     try {
@@ -482,7 +422,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         const prodRef = doc(db, 'businesses', tenantId, 'products', editingProduct.id);
         const updatedData = {
           name: formData.name.trim(),
-          barcode: cleanBarcode || null,
           categoryId: formData.categoryId,
           categoryName,
           unitType: formData.unitType,
@@ -495,14 +434,13 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
           updatedAt: now
         };
         await updateDoc(prodRef, updatedData);
-        await logAuditAction(user.uid, user.name, 'PRODUCT_EDITED', `Updated product ${formData.name} (Barcode: ${cleanBarcode || 'none'})`, editingProduct.id);
+        await logAuditAction(user.uid, user.name, 'PRODUCT_EDITED', `Updated product ${formData.name}`, editingProduct.id);
       } else {
         // Create
         const productId = 'prod-' + Date.now();
         const newProduct: Product = {
           id: productId,
           name: formData.name.trim(),
-          barcode: cleanBarcode || undefined,
           categoryId: formData.categoryId,
           categoryName,
           unitType: formData.unitType,
@@ -519,7 +457,7 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
         };
         const prodRef = doc(db, 'businesses', tenantId, 'products', productId);
         await setDoc(prodRef, newProduct);
-        await logAuditAction(user.uid, user.name, 'PRODUCT_CREATED', `Created product ${formData.name} (Barcode: ${cleanBarcode || 'none'})`, productId);
+        await logAuditAction(user.uid, user.name, 'PRODUCT_CREATED', `Created product ${formData.name}`, productId);
       }
 
       setIsModalOpen(false);
@@ -548,13 +486,9 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q ||
       p.name.toLowerCase().includes(q) ||
-      p.categoryName.toLowerCase().includes(q) ||
-      (p.barcode != null && String(p.barcode).toLowerCase().includes(q));
+      p.categoryName.toLowerCase().includes(q);
     return matchesCat && matchesSearch;
   });
-
-  const productsWithoutBarcode = products.filter(p => !p.barcode || !String(p.barcode).trim());
-  const productsWithBarcode = products.filter(p => p.barcode && String(p.barcode).trim());
 
   const currency = businessConfig?.currency || 'KSh';
 
@@ -588,29 +522,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
           >
             <Download className="w-4 h-4 text-gray-500" />
             <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => setIsAssignBarcodesModalOpen(true)}
-            disabled={products.length === 0}
-            className="inline-flex items-center space-x-2 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-300/80 px-4 py-3 text-sm font-bold text-amber-900 shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            title="Assign Barcodes to All Products"
-          >
-            <Barcode className="w-4 h-4 text-amber-700" />
-            <span>Assign Barcodes</span>
-            {productsWithoutBarcode.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 text-xs font-black rounded-full bg-amber-600 text-white shadow-xs">
-                {productsWithoutBarcode.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setIsCatalogLabelsModalOpen(true)}
-            disabled={productsWithBarcode.length === 0}
-            className="inline-flex items-center space-x-2 rounded-2xl bg-white border border-gray-300 hover:bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            title="Print Barcode Labels for Catalog"
-          >
-            <Printer className="w-4 h-4 text-gray-500" />
-            <span>Print Labels</span>
           </button>
           <button
             onClick={() => setIsAddAllModalOpen(true)}
@@ -683,36 +594,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
           ))}
         </div>
       </div>
-
-      {/* Alert Banner for Missing Barcodes */}
-      {productsWithoutBarcode.length > 0 && (
-        <div className="rounded-3xl bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50 border border-amber-300/80 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center space-x-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-600/20">
-              <Barcode className="w-6 h-6" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <span>{productsWithoutBarcode.length} product{productsWithoutBarcode.length === 1 ? '' : 's'} without barcodes</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900">
-                  Ready to Assign
-                </span>
-              </h4>
-              <p className="text-xs text-gray-600 mt-0.5">
-                Assign unique barcodes to all products so cashiers can scan them instantly with USB or Bluetooth scanners at checkout.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsAssignBarcodesModalOpen(true)}
-            className="inline-flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-amber-600/20 transition-all active:scale-95 shrink-0 cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Assign Barcodes to All ({productsWithoutBarcode.length})</span>
-          </button>
-        </div>
-      )}
 
       {/* Action Notification Banner */}
       {actionNotification && (
@@ -850,7 +731,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                     />
                   </th>
                   <th className="p-4">Product Name</th>
-                  <th className="p-4">Barcode</th>
                   <th className="p-4">Category</th>
                   <th className="p-4">Unit</th>
                   <th className="p-4 text-right">Selling Price</th>
@@ -862,7 +742,7 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
               <tbody className="divide-y divide-gray-100 text-sm">
                 {filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-gray-400">
+                    <td colSpan={8} className="p-8 text-center text-gray-400">
                       No products match your search or filter.
                     </td>
                   </tr>
@@ -889,35 +769,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                         </td>
                         <td className="p-4 font-bold text-gray-900">{product.name}</td>
                         <td className="p-4">
-                          {product.barcode ? (
-                            <div className="flex items-center space-x-1.5">
-                              <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
-                                {product.barcode}
-                              </span>
-                              <button
-                                onClick={() => setLabelModalProduct(product)}
-                                className="p-1 rounded text-gray-400 hover:text-amber-700 hover:bg-amber-50 transition-colors"
-                                title="Print Barcode Label"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                handleOpenEditModal(product);
-                                const existingCodes = products.map(p => String(p.barcode || '')).filter(Boolean);
-                                const newCode = generateBarcode('CODE128', existingCodes);
-                                setFormData(prev => ({ ...prev, barcode: newCode }));
-                              }}
-                              className="text-xs text-amber-600 hover:text-amber-700 font-medium hover:underline flex items-center space-x-1"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>Assign</span>
-                            </button>
-                          )}
-                        </td>
-                        <td className="p-4">
                           <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
                             {product.categoryName}
                           </span>
@@ -929,15 +780,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                         <td className="p-4 text-center font-medium text-gray-700">{product.openingStock}</td>
                         <td className="p-4 text-center font-bold text-gray-900">{product.currentStock}</td>
                         <td className="p-4 text-right space-x-2 whitespace-nowrap">
-                          {product.barcode && (
-                            <button
-                              onClick={() => setLabelModalProduct(product)}
-                              className="p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
-                              title="Print Barcode Label"
-                            >
-                              <Printer className="w-4 h-4" />
-                            </button>
-                          )}
                           <button
                             onClick={() => handleOpenEditModal(product)}
                             className="p-2 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all"
@@ -999,50 +841,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
                   placeholder="e.g. Tusker Lager (500ml)"
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
                 />
-              </div>
-
-              {/* Barcode Field with Auto-Generate & Live Preview */}
-              <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-amber-900 flex items-center space-x-1.5">
-                    <Barcode className="w-4 h-4 text-amber-700" />
-                    <span>Product Barcode (UPC / EAN / Code-128)</span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsCameraScannerOpen(true)}
-                      className="inline-flex items-center space-x-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white px-2.5 py-1 text-xs font-bold shadow-xs transition-all cursor-pointer"
-                      title="Scan product barcode with phone camera"
-                    >
-                      <Camera className="w-3 h-3 text-amber-400" />
-                      <span>Scan Camera</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAutoGenerateBarcode}
-                      className="inline-flex items-center space-x-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 text-xs font-bold shadow-xs transition-all cursor-pointer"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>Auto-Generate</span>
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  value={formData.barcode ?? ''}
-                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                  placeholder="Scan with scanner or type barcode (e.g. 6161100010012)"
-                  className="w-full rounded-xl border border-amber-300 bg-white p-2.5 font-mono text-sm tracking-wider focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
-                />
-                <p className="text-[11px] text-gray-500">
-                  Must be unique per business tenant. Supports handheld USB scanners, wireless Bluetooth scanners, and retail codes.
-                </p>
-                {String(formData.barcode ?? '').trim() && (
-                  <div className="pt-2 border-t border-amber-100 flex flex-col items-center">
-                    <BarcodeSvg value={String(formData.barcode ?? '').trim()} height={45} className="max-w-full" />
-                  </div>
-                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1486,52 +1284,6 @@ export function ProductsView({ user, businessConfig, initialBarcode, onClearInit
             </div>
           </div>
         </div>
-      )}
-
-      {/* Print Barcode Label Modal */}
-      {labelModalProduct && (
-        <PrintBarcodeLabelModal
-          product={labelModalProduct}
-          businessConfig={businessConfig}
-          onClose={() => setLabelModalProduct(null)}
-        />
-      )}
-
-      {/* Assign Barcodes to All Modal */}
-      <AssignBarcodesModal
-        isOpen={isAssignBarcodesModalOpen}
-        onClose={() => setIsAssignBarcodesModalOpen(false)}
-        products={products}
-        tenantId={tenantId}
-        user={user}
-        businessConfig={businessConfig}
-        onSuccess={(updatedProducts) => {
-          setProducts(updatedProducts);
-        }}
-        onOpenBatchPrint={() => setIsCatalogLabelsModalOpen(true)}
-      />
-
-      {/* Print Catalog Labels Sheet Modal */}
-      <PrintCatalogLabelsModal
-        isOpen={isCatalogLabelsModalOpen}
-        onClose={() => setIsCatalogLabelsModalOpen(false)}
-        products={products}
-        businessConfig={businessConfig}
-      />
-
-      {/* Camera Barcode Scanner for Product Entry */}
-      {isCameraScannerOpen && (
-        <CameraBarcodeScanner
-          isOpen={true}
-          title="Scan Barcode to Add Product"
-          onClose={() => setIsCameraScannerOpen(false)}
-          onScan={(scannedCode) => {
-            setFormData((prev) => ({ ...prev, barcode: scannedCode }));
-            setIsCameraScannerOpen(false);
-          }}
-          allProducts={products}
-          currency={currency}
-        />
       )}
     </div>
   );

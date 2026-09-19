@@ -2,7 +2,6 @@ import React from 'react';
 import { Sale, BusinessConfig } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { PrinterFontSettings, getStoredFontSettings } from './printerTypes';
-import { BarcodeSvg } from '../components/common/BarcodeSvg';
 
 interface ThermalReceiptProps {
   sale: Sale;
@@ -160,17 +159,9 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
         )}
       </div>
 
-      {/* Receipt Verification Barcode */}
-      <div className="border-t border-dashed border-gray-400 pt-2 pb-1 text-center flex flex-col items-center justify-center">
-        <BarcodeSvg
-          value={sale.id.replace(/\D/g, '').slice(-12) || sale.id.slice(-8).toUpperCase()}
-          format="CODE128"
-          width={1.1}
-          height={28}
-          fontSize={8}
-          displayValue={true}
-        />
-        <p className="text-[7.5px] font-mono text-gray-500 tracking-widest mt-0.5 uppercase">
+      {/* Receipt Verification ID */}
+      <div className="border-t border-dashed border-gray-400 pt-1.5 pb-0.5 text-center flex flex-col items-center justify-center">
+        <p className="text-[9px] font-mono font-bold text-gray-700 tracking-widest uppercase">
           RECEIPT #{sale.id.slice(-8).toUpperCase()}
         </p>
       </div>
