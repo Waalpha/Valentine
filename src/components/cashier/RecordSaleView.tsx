@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserProfile, BusinessConfig, Product, SaleItem, Sale, PaymentMethod } from '../../types';
+import { UserProfile, BusinessConfig, Product, SaleItem, Sale, PaymentMethod, RestaurantOrder } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
@@ -16,6 +16,8 @@ import {
   Smartphone,
   CircleDollarSign,
   ArrowLeft,
+  ArrowRight,
+  UtensilsCrossed,
   X,
   Zap,
   Check,
@@ -30,13 +32,15 @@ import {
   getLocalCachedCategories,
   syncOfflineQueue
 } from '../../lib/offlineManager';
+import { subscribeOrders } from '../../lib/orderService';
 
 interface RecordSaleViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
+  onNavigateToWaiterOrders?: () => void;
 }
 
-export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
+export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders }: RecordSaleViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const currency = businessConfig?.currency || 'KSh';
   const [products, setProducts] = useState<Product[]>([]);
@@ -44,6 +48,7 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<SaleItem[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<RestaurantOrder[]>([]);
 
   // Payment states
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
@@ -65,6 +70,14 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
   useEffect(() => {
     fetchProductsAndCategories();
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeOrders(tenantId, (orders) => {
+      const pending = orders.filter(o => o.orderStatus !== 'completed' && o.orderStatus !== 'cancelled');
+      setPendingOrders(pending);
+    });
+    return () => unsub();
+  }, [tenantId]);
 
   async function fetchProductsAndCategories() {
     // 1. Instant load from offline cache scoped to tenant
@@ -218,6 +231,9 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
         }
         setIsCustomTendered(false);
       }
+    } else {
+      setAmountTendered(totalCartAmount > 0 ? totalCartAmount.toString() : '');
+      setIsCustomTendered(false);
     }
   }, [totalCartAmount, paymentMethod]);
 
@@ -337,6 +353,40 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
 
   return (
     <div className="space-y-4 pb-28 lg:pb-6">
+      {/* Pending Waiter Orders Notification Banner */}
+      {pendingOrders.length > 0 && onNavigateToWaiterOrders && (
+        <div 
+          onClick={onNavigateToWaiterOrders}
+          className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 p-3 sm:p-4 rounded-2xl shadow-lg flex items-center justify-between cursor-pointer hover:brightness-105 transition-all transform active:scale-99 border-2 border-amber-300 ring-4 ring-amber-500/20"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+              <UtensilsCrossed className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm uppercase tracking-wide">
+                  {pendingOrders.length} Waiter Order{pendingOrders.length > 1 ? 's' : ''} Ready for Payment
+                </span>
+                <span className="bg-slate-950 text-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full animate-bounce">
+                  Pending Cashier
+                </span>
+              </div>
+              <p className="text-xs text-slate-900 font-medium">
+                Latest: <strong>{pendingOrders[0].tableName}</strong> (Order #{pendingOrders[0].orderNumber}) • {formatCurrency(pendingOrders[0].totalAmount, currency)} by {pendingOrders[0].waiterName}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="flex items-center space-x-1.5 bg-slate-950 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-md hover:bg-slate-900 transition-all shrink-0 cursor-pointer"
+          >
+            <span>Review & Cash Out</span>
+            <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+          </button>
+        </div>
+      )}
+
       {/* Mobile Top Segment Switcher (Catalog vs Cart & Payment) */}
       <div className="lg:hidden flex rounded-2xl bg-slate-900 p-1.5 shadow-md sticky top-16 z-30">
         <button
@@ -869,34 +919,59 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
             )}
 
             {paymentMethod === 'M-Pesa' && (
-              <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-2xl space-y-2">
-                <label className="block text-xs font-bold text-amber-300">
-                  2. Enter M-Pesa Confirmation Code or Customer Phone:
-                </label>
+              <div className="bg-slate-800/90 border border-emerald-500/40 p-3.5 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                    <Smartphone className="w-4 h-4 text-emerald-400" />
+                    <span>2. M-Pesa Code or Customer Phone (Optional):</span>
+                  </label>
+                  <span className="text-[10px] font-semibold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30">
+                    Optional
+                  </span>
+                </div>
                 <input
                   type="text"
                   value={referenceCode}
                   onChange={(e) => setReferenceCode(e.target.value)}
                   placeholder="e.g. QBC91823 or 0712345678"
-                  className="w-full px-3.5 py-2.5 rounded-xl border-2 border-emerald-500 bg-slate-900 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="w-full px-3.5 py-2.5 rounded-xl border-2 border-emerald-500/80 bg-slate-900 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 uppercase tracking-wide placeholder:normal-case placeholder:font-normal"
                 />
-                <p className="text-[10px] text-slate-400">
-                  Customer confirms M-Pesa payment to your till/paybill.
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-400 pt-0.5">
+                  <span>Customer confirms payment to your till/paybill</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setReferenceCode('CONFIRMED')}
+                      className="px-2 py-0.5 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-600/40 rounded font-bold text-[10px] cursor-pointer"
+                    >
+                      + Confirmed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReferenceCode('TILL')}
+                      className="px-2 py-0.5 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-600/40 rounded font-bold text-[10px] cursor-pointer"
+                    >
+                      + Till
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
             {(paymentMethod === 'Card' || paymentMethod === 'Other') && (
-              <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-2xl space-y-2">
-                <label className="block text-xs font-bold text-amber-300">
-                  2. Reference / Slip Code (Optional):
-                </label>
+              <div className="bg-slate-800/90 border border-slate-700 p-3.5 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-amber-300">
+                    2. Reference / Slip Code (Optional):
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">Optional</span>
+                </div>
                 <input
                   type="text"
                   value={referenceCode}
                   onChange={(e) => setReferenceCode(e.target.value)}
                   placeholder="e.g. POS Slip Approval #4892"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-600 bg-slate-900 text-sm font-semibold text-white focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-600 bg-slate-900 text-sm font-semibold text-white focus:outline-none focus:border-amber-500 uppercase"
                 />
               </div>
             )}
@@ -908,6 +983,8 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
               className={`w-full rounded-2xl py-3.5 text-sm sm:text-base font-black shadow-xl transition-all uppercase tracking-wide flex items-center justify-center space-x-2 ${
                 isUnderpaid
                   ? 'bg-red-950 text-red-300 border-2 border-red-500/60 cursor-not-allowed opacity-90'
+                  : paymentMethod === 'M-Pesa'
+                  ? 'bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 shadow-emerald-500/20 cursor-pointer'
                   : 'bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-slate-950 shadow-amber-500/20 cursor-pointer'
               } disabled:opacity-50`}
             >
@@ -922,6 +999,8 @@ export function RecordSaleView({ user, businessConfig }: RecordSaleViewProps) {
                   <span>
                     {loading
                       ? 'Recording Transaction...'
+                      : paymentMethod === 'M-Pesa'
+                      ? `COMPLETE M-PESA SALE (${formatCurrency(totalCartAmount, currency)})`
                       : parsedTendered > totalCartAmount
                       ? `RECORD FULL SALE (${formatCurrency(totalCartAmount, currency)} • CHANGE: ${formatCurrency(changeDue, currency)})`
                       : `RECORD FULL PAYMENT (${formatCurrency(totalCartAmount, currency)})`}

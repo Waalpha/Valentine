@@ -2,7 +2,7 @@ import { PrinterType, PrinterDevice, PrinterConnectionState, PrinterFontSettings
 import { UsbPrinterDriver } from './UsbPrinterDriver';
 import { BluetoothPrinterDriver } from './BluetoothPrinterDriver';
 import { EscPosFormatter } from './EscPosFormatter';
-import { Sale, BusinessConfig } from '../types';
+import { Sale, BusinessConfig, RestaurantOrder } from '../types';
 
 export class ThermalPrinterService {
   private static instance: ThermalPrinterService;
@@ -162,6 +162,15 @@ export class ThermalPrinterService {
     fontSettings?: PrinterFontSettings
   ): Promise<void> {
     const data = EscPosFormatter.formatSaleReceipt(sale, businessConfig, fontSettings);
+    await this.sendData(data);
+  }
+
+  public async printKot(
+    order: RestaurantOrder,
+    businessConfig?: BusinessConfig | null,
+    fontSettings?: PrinterFontSettings
+  ): Promise<void> {
+    const data = EscPosFormatter.formatKotTicket(order, businessConfig, fontSettings);
     await this.sendData(data);
   }
 

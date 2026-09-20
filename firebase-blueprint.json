@@ -44,6 +44,51 @@
         "createdAt": { "type": "number" }
       },
       "required": ["id", "items", "totalAmount", "paymentMethod", "cashierId"]
+    },
+    "RestaurantOrder": {
+      "title": "RestaurantOrder",
+      "description": "Order taken by waiter or cashier for a table or spot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "tableId": { "type": "string" },
+        "tableName": { "type": "string" },
+        "customerName": { "type": "string" },
+        "notes": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "orderStatus": { "type": "string" },
+        "kitchenStatus": { "type": "string" },
+        "waiterId": { "type": "string" },
+        "waiterName": { "type": "string" },
+        "paymentStatus": { "type": "string" },
+        "businessDayId": { "type": "string" },
+        "businessId": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "orderNumber", "tableId", "tableName", "items", "totalAmount", "orderStatus", "waiterId"]
+    },
+    "RestaurantTable": {
+      "title": "RestaurantTable",
+      "description": "Dining tables and bar service spots",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "zone": { "type": "string" },
+        "seats": { "type": "number" },
+        "status": { "type": "string" },
+        "businessId": { "type": "string" },
+        "currentOrderId": { "type": "string" },
+        "currentWaiterId": { "type": "string" },
+        "currentWaiterName": { "type": "string" }
+      },
+      "required": ["id", "name", "zone", "status"]
     }
   },
   "firestore": {
@@ -54,6 +99,14 @@
     "/businesses/{businessId}/sales/{saleId}": {
       "schema": "Sale",
       "description": "Point of sale completed receipts"
+    },
+    "/businesses/{businessId}/orders/{orderId}": {
+      "schema": "RestaurantOrder",
+      "description": "Live restaurant orders sent to cashier"
+    },
+    "/businesses/{businessId}/tables/{tableId}": {
+      "schema": "RestaurantTable",
+      "description": "Restaurant tables and bar counters"
     }
   }
 }

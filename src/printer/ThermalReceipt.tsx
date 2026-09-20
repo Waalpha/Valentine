@@ -99,6 +99,18 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
           <span className="text-gray-600">Cashier:</span>
           <span>{sale.cashierName}</span>
         </div>
+        {sale.waiterName && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Waiter:</span>
+            <span className="font-semibold">{sale.waiterName}</span>
+          </div>
+        )}
+        {sale.tableName && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Table:</span>
+            <span className="font-bold">{sale.tableName}</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-gray-600">Payment:</span>
           <span className="font-bold text-emerald-800">{sale.paymentMethod}</span>

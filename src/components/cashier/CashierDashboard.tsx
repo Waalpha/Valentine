@@ -3,12 +3,13 @@ import { UserProfile, BusinessConfig, Sale, Product } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
-import { ShoppingCart, Receipt, Package, CalendarCheck, TrendingUp, DollarSign, Layers } from 'lucide-react';
+import { ShoppingCart, Receipt, Package, CalendarCheck, TrendingUp, DollarSign, Layers, UtensilsCrossed } from 'lucide-react';
+import { subscribeOrders } from '../../lib/orderService';
 
 interface CashierDashboardProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  setActiveTab: (tab: 'dashboard' | 'sell' | 'sales' | 'stock' | 'closing') => void;
+  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing') => void;
 }
 
 export function CashierDashboard({ user, businessConfig, setActiveTab }: CashierDashboardProps) {
@@ -16,7 +17,17 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
   const [todayItemsSold, setTodayItemsSold] = useState(0);
   const [todayTransactionsCount, setTodayTransactionsCount] = useState(0);
   const [availableStockTotal, setAvailableStockTotal] = useState(0);
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+    const unsub = subscribeOrders(tenantId, (orders) => {
+      const pending = orders.filter(o => o.orderStatus !== 'completed' && o.orderStatus !== 'cancelled').length;
+      setPendingOrdersCount(pending);
+    });
+    return () => unsub();
+  }, [user.businessId]);
 
   useEffect(() => {
     async function fetchStats() {
@@ -160,16 +171,34 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
       {/* Main Cashier Actions Grid */}
       <div className="pt-2">
         <h3 className="text-lg font-bold text-gray-900 mb-4">Quick POS Actions</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <button
+            onClick={() => setActiveTab('waiter_orders')}
+            className="relative flex flex-col items-center justify-center p-6 rounded-3xl bg-amber-600 text-white shadow-lg shadow-amber-600/30 hover:bg-amber-700 active:scale-95 transition-all group text-center cursor-pointer"
+          >
+            {pendingOrdersCount > 0 && (
+              <span className="absolute top-4 right-4 px-2 py-0.5 rounded-full text-xs font-black bg-white text-slate-950 animate-bounce">
+                {pendingOrdersCount} NEW
+              </span>
+            )}
+            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <UtensilsCrossed className="w-8 h-8 text-white" />
+            </div>
+            <span className="text-lg font-bold">WAITER ORDERS</span>
+            <span className="text-xs text-amber-100 mt-1">
+              {pendingOrdersCount > 0 ? `${pendingOrdersCount} orders pending payment` : 'Review & process orders'}
+            </span>
+          </button>
+
           <button
             onClick={() => setActiveTab('sell')}
-            className="flex flex-col items-center justify-center p-6 rounded-3xl bg-amber-600 text-white shadow-lg hover:bg-amber-700 active:scale-95 transition-all group text-center"
+            className="flex flex-col items-center justify-center p-6 rounded-3xl bg-slate-900 text-white shadow-lg hover:bg-slate-800 active:scale-95 transition-all group text-center cursor-pointer"
           >
-            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-              <ShoppingCart className="w-8 h-8 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <ShoppingCart className="w-8 h-8 text-amber-400" />
             </div>
-            <span className="text-lg font-bold">RECORD SALE</span>
-            <span className="text-xs text-amber-100 mt-1">Process customer orders & payment</span>
+            <span className="text-lg font-bold">DIRECT SALE</span>
+            <span className="text-xs text-slate-300 mt-1">Walk-in bar counter sales</span>
           </button>
 
           <button

@@ -30,11 +30,13 @@ try {
       tabManager: persistentMultipleTabManager()
     }),
     experimentalForceLongPolling: true,
+    ignoreUndefinedProperties: true,
   }, dbId);
 } catch (e) {
   try {
     firestoreInstance = initializeFirestore(app, {
       experimentalForceLongPolling: true,
+      ignoreUndefinedProperties: true,
     }, dbId);
   } catch (e2) {
     firestoreInstance = getFirestore(app, dbId);

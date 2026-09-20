@@ -3,7 +3,7 @@ import { UserProfile, BusinessConfig } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { logAuditAction } from '../../lib/utils';
-import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle, KeyRound, Briefcase } from 'lucide-react';
+import { Users, Plus, UserCheck, Shield, Lock, X, AlertCircle, KeyRound, Briefcase, UtensilsCrossed } from 'lucide-react';
 
 interface CashiersViewProps {
   user: UserProfile;
@@ -21,7 +21,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'admin' | 'manager' | 'cashier'>('cashier');
+  const [role, setRole] = useState<'admin' | 'manager' | 'cashier' | 'waiter'>('cashier');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -238,12 +238,16 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                           ? 'bg-amber-100 text-amber-800' 
                           : u.role === 'manager'
                           ? 'bg-purple-100 text-purple-800'
+                          : u.role === 'waiter'
+                          ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}>
                         {u.role === 'admin' ? (
                           <Shield className="w-3.5 h-3.5" />
                         ) : u.role === 'manager' ? (
                           <Briefcase className="w-3.5 h-3.5" />
+                        ) : u.role === 'waiter' ? (
+                          <UtensilsCrossed className="w-3.5 h-3.5" />
                         ) : (
                           <UserCheck className="w-3.5 h-3.5" />
                         )}
@@ -253,7 +257,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                     <td className="p-4">
                       <span className="inline-flex items-center space-x-1 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
                         <KeyRound className="w-3 h-3 text-amber-600" />
-                        <span>{u.pin || (u.role === 'admin' ? '1234' : '1111')}</span>
+                        <span>{u.pin || (u.role === 'admin' ? '1234' : u.role === 'manager' ? '3333' : u.role === 'waiter' ? '4444' : '1111')}</span>
                       </span>
                     </td>
                     <td className="p-4 text-center">
@@ -375,7 +379,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                     maxLength={6}
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                    placeholder={role === 'admin' ? '1234 (default)' : '1111 (default)'}
+                    placeholder={role === 'admin' ? '1234 (default)' : role === 'manager' ? '3333 (default)' : role === 'waiter' ? '4444 (default)' : '1111 (default)'}
                     className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none font-mono tracking-widest"
                   />
                 </div>
@@ -391,7 +395,8 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   onChange={(e) => setRole(e.target.value as any)}
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm bg-white focus:border-amber-600 focus:outline-none"
                 >
-                  <option value="cashier">Cashier</option>
+                  <option value="waiter">Waiter / Floor Server</option>
+                  <option value="cashier">Cashier (Sales & Payments)</option>
                   <option value="manager">Manager</option>
                   <option value="admin">Admin / Owner</option>
                 </select>

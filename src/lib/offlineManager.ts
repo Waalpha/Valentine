@@ -1,7 +1,7 @@
 import { Sale, Product, BusinessConfig } from '../types';
 import { db, DEFAULT_BUSINESS_ID } from './firebase';
 import { doc, setDoc, updateDoc, increment, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
-import { logAuditAction } from './utils';
+import { logAuditAction, cleanForFirestore } from './utils';
 
 export interface OfflineStatus {
   isOnline: boolean;
@@ -25,7 +25,11 @@ function getStoredPendingSales(): Sale[] {
 }
 
 function savePendingSales(queue: Sale[]) {
-  localStorage.setItem('bar_pos_offline_sales_queue', JSON.stringify(queue));
+  try {
+    localStorage.setItem('bar_pos_offline_sales_queue', JSON.stringify(queue));
+  } catch (e) {
+    console.warn('Failed to write offline sales queue to localStorage:', e);
+  }
   notifyListeners();
 }
 
@@ -361,7 +365,7 @@ export async function syncOfflineQueue(tenantId?: string): Promise<{ syncedCount
     try {
       // 1. Upload sale document
       const saleRef = doc(db, 'businesses', activeTenantId, 'sales', sale.id);
-      await setDoc(saleRef, sale, { merge: true });
+      await setDoc(saleRef, cleanForFirestore(sale), { merge: true });
 
       // 2. Update stock in Firestore for inventory items and record stock movement history
       for (const item of sale.items) {

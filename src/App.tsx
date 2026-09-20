@@ -12,6 +12,9 @@ import { RecordSaleView } from './components/cashier/RecordSaleView';
 import { CashierSalesView } from './components/cashier/CashierSalesView';
 import { CashierStockView } from './components/cashier/CashierStockView';
 import { DailyClosingView } from './components/cashier/DailyClosingView';
+import { WaiterOrdersView } from './components/cashier/WaiterOrdersView';
+
+import { WaiterLayout } from './components/waiter/WaiterLayout';
 
 import { AdminLayout } from './components/admin/AdminLayout';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -23,6 +26,8 @@ import { CashiersView } from './components/admin/CashiersView';
 import { AuditLogsView } from './components/admin/AuditLogsView';
 import { SettingsView } from './components/admin/SettingsView';
 import { PrinterSettingsView } from './components/admin/PrinterSettingsView';
+import { TablesView } from './components/admin/TablesView';
+import { WaiterPerformanceView } from './components/admin/WaiterPerformanceView';
 
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -31,7 +36,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   // Navigation tab states
-  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'sales' | 'stock' | 'closing'>('dashboard');
+  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
   useEffect(() => {
@@ -134,6 +139,22 @@ export default function App() {
     );
   }
 
+  // Render Waiter Interface
+  if (userProfile.role === 'waiter') {
+    return (
+      <WaiterLayout
+        user={userProfile}
+        businessConfig={businessConfig}
+        onLogout={() => {
+          localStorage.removeItem('bar_pos_local_user');
+          auth.signOut();
+          setFirebaseUser(null);
+          setUserProfile(null);
+        }}
+      />
+    );
+  }
+
   // Render Cashier Interface
   if (userProfile.role === 'cashier') {
     return (
@@ -158,6 +179,13 @@ export default function App() {
         )}
         {cashierTab === 'sell' && (
           <RecordSaleView
+            user={userProfile}
+            businessConfig={businessConfig}
+            onNavigateToWaiterOrders={() => setCashierTab('waiter_orders')}
+          />
+        )}
+        {cashierTab === 'waiter_orders' && (
+          <WaiterOrdersView
             user={userProfile}
             businessConfig={businessConfig}
           />
@@ -207,6 +235,28 @@ export default function App() {
       )}
       {adminTab === 'pos' && (
         <RecordSaleView
+          user={userProfile}
+          businessConfig={businessConfig}
+          onNavigateToWaiterOrders={() => setAdminTab('waiter_orders')}
+        />
+      )}
+      {adminTab === 'waiter_orders' && (
+        <WaiterOrdersView
+          user={userProfile}
+          businessConfig={businessConfig}
+        />
+      )}
+      {adminTab === 'tables' && (
+        <TablesView
+          user={userProfile}
+          businessConfig={businessConfig}
+          onSelectTableForOrder={(table) => {
+            setAdminTab('waiter_orders');
+          }}
+        />
+      )}
+      {adminTab === 'waiter_performance' && (
+        <WaiterPerformanceView
           user={userProfile}
           businessConfig={businessConfig}
         />

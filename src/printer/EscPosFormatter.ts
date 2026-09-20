@@ -1,4 +1,4 @@
-import { Sale, BusinessConfig } from '../types';
+import { Sale, BusinessConfig, RestaurantOrder } from '../types';
 import { formatCurrency } from '../lib/utils';
 import { PrinterFontSettings, getStoredFontSettings } from './printerTypes';
 
@@ -160,6 +160,12 @@ export class EscPosFormatter {
     formatter.addLine(`Receipt #: ${sale.id.slice(-8).toUpperCase()}`);
     formatter.addLine(`Date:     ${sale.date} ${sale.time}`);
     formatter.addLine(`Cashier:  ${sale.cashierName}`);
+    if (sale.waiterName) {
+      formatter.addLine(`Waiter:   ${sale.waiterName}`);
+    }
+    if (sale.tableName) {
+      formatter.addLine(`Table:    ${sale.tableName}`);
+    }
     formatter.addLine(`Payment:  ${sale.paymentMethod}`);
     if (sale.referenceCode) {
       formatter.addLine(`Ref Code: ${sale.referenceCode}`);
@@ -202,6 +208,67 @@ export class EscPosFormatter {
     formatter.addLine(footer);
     formatter.addLine(`Printed: ${new Date().toLocaleTimeString()}`);
 
+    formatter.cut();
+    return formatter.getData();
+  }
+
+  public static formatKotTicket(
+    order: RestaurantOrder,
+    businessConfig?: BusinessConfig | null,
+    customFontSettings?: PrinterFontSettings
+  ): Uint8Array {
+    const formatter = new EscPosFormatter();
+    const settings = customFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
+    const businessName = businessConfig?.name || 'CLUB VALENTINE';
+
+    // Apply font settings
+    formatter.applyFontSettings(settings);
+
+    // Bar Order Ticket Header
+    formatter.setAlignment('center');
+    formatter.setBold(true);
+    formatter.addLine(businessName.toUpperCase());
+    formatter.addLine('BAR ORDER TICKET');
+    if (!settings.bold) {
+      formatter.setBold(false);
+    }
+    formatter.addSeparator('=');
+
+    // Meta details
+    formatter.setAlignment('left');
+    formatter.addLine(`Order #: ${order.orderNumber}`);
+    formatter.addLine(`Table:   ${order.tableName}`);
+    formatter.addLine(`Waiter:  ${order.waiterName}`);
+    if (order.customerName) {
+      formatter.addLine(`Guest:   ${order.customerName}`);
+    }
+    formatter.addLine(`Time:    ${order.time} (${order.date})`);
+    formatter.addLine(`Bar Status: ${order.kitchenStatus.toUpperCase()}`);
+    formatter.addSeparator('-');
+
+    // Items list (QTY x ITEM) - Clean, prominent format for bar staff
+    formatter.setBold(true);
+    order.items.forEach((item) => {
+      formatter.addLine(`${item.quantity} × ${item.productName}`);
+      if (item.notes) {
+        formatter.addLine(`   Note: ${item.notes}`);
+      }
+    });
+    if (!settings.bold) {
+      formatter.setBold(false);
+    }
+
+    // General Order Note if present
+    if (order.notes) {
+      formatter.addSeparator('-');
+      formatter.addLine('Special Instructions:');
+      formatter.addLine(`Note: ${order.notes}`);
+    }
+
+    formatter.addSeparator('=');
+    formatter.setAlignment('center');
+    formatter.addLine('*** BAR TICKET - NOT A BILL ***');
+    formatter.addLine(`Printed: ${new Date().toLocaleTimeString()}`);
     formatter.cut();
     return formatter.getData();
   }

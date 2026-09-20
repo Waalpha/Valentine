@@ -197,6 +197,26 @@ const THEMES: Record<LoginTheme, ThemeStyles> = {
 // Fallback staff users so POS is immediately operational
 const DEFAULT_STAFF: UserProfile[] = [
   {
+    uid: 'user-mary-waiter',
+    name: 'Mary',
+    email: 'mary@Valentine.com',
+    role: 'waiter',
+    businessId: DEFAULT_BUSINESS_ID,
+    status: 'active',
+    pin: '4444',
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'user-john-waiter',
+    name: 'John',
+    email: 'john@Valentine.com',
+    role: 'waiter',
+    businessId: DEFAULT_BUSINESS_ID,
+    status: 'active',
+    pin: '5555',
+    createdAt: new Date().toISOString()
+  },
+  {
     uid: 'user-atieno-cashier',
     name: 'Atieno',
     email: 'atieno@Valentine.com',
@@ -906,6 +926,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
                               : u.role === 'manager'
                               ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                              : u.role === 'waiter'
+                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                               : 'bg-blue-100 text-blue-900 border border-blue-300'
                           }`}>
                             {initials}

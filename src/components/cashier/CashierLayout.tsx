@@ -1,21 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
-import { auth } from '../../lib/firebase';
+import { auth, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { logAuditAction, formatCurrency } from '../../lib/utils';
-import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2 } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2, UtensilsCrossed } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
+import { subscribeOrders } from '../../lib/orderService';
 
 interface CashierLayoutProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  activeTab: 'dashboard' | 'sell' | 'sales' | 'stock' | 'closing';
-  setActiveTab: (tab: 'dashboard' | 'sell' | 'sales' | 'stock' | 'closing') => void;
+  activeTab: 'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing';
+  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing') => void;
   onLogout: () => void;
   children?: React.ReactNode;
 }
 
 export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, onLogout, children }: CashierLayoutProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+
+  useEffect(() => {
+    const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+    const unsub = subscribeOrders(tenantId, (orders) => {
+      const pending = orders.filter(o => o.orderStatus !== 'completed' && o.orderStatus !== 'cancelled').length;
+      setPendingOrdersCount(pending);
+    });
+    return () => unsub();
+  }, [user.businessId]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -49,7 +60,14 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'sell', label: 'Record Sale', icon: ShoppingCart, highlight: true },
+    { id: 'sell', label: 'Record Sale (POS)', icon: ShoppingCart, highlight: true },
+    {
+      id: 'waiter_orders',
+      label: 'Waiter Orders',
+      icon: UtensilsCrossed,
+      badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
+      badgeColor: 'bg-amber-500 text-slate-950 font-black animate-pulse'
+    },
     { id: 'sales', label: "Today's Sales", icon: Receipt },
     { id: 'stock', label: 'Stock Status', icon: Package },
     { id: 'closing', label: 'End-of-Day', icon: CalendarCheck },
@@ -132,6 +150,11 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
                 >
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
+                  {item.badge !== undefined && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-black ${item.badgeColor || 'bg-amber-500 text-black'}`}>
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
-import { auth } from '../../lib/firebase';
+import { auth, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { logAuditAction } from '../../lib/utils';
 import { 
   LayoutDashboard, ShoppingBag, Package, Layers, Receipt, CalendarCheck, 
-  Users, ShieldAlert, Settings, LogOut, Wine, Printer 
+  Users, ShieldAlert, Settings, LogOut, Wine, Printer, UtensilsCrossed, Award, Grid
 } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
+import { subscribeOrders } from '../../lib/orderService';
 
 interface AdminLayoutProps {
   user: UserProfile;
@@ -18,6 +19,17 @@ interface AdminLayoutProps {
 }
 
 export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onLogout, children }: AdminLayoutProps) {
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+
+  useEffect(() => {
+    const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+    const unsub = subscribeOrders(tenantId, (orders) => {
+      const pending = orders.filter(o => o.orderStatus !== 'completed' && o.orderStatus !== 'cancelled').length;
+      setPendingOrdersCount(pending);
+    });
+    return () => unsub();
+  }, [user.businessId]);
+
   const handleSignOut = async () => {
     await logAuditAction(user.uid, user.name, 'LOGOUT', `${user.role === 'manager' ? 'Manager' : 'Admin'} logged out`);
     await auth.signOut();
@@ -27,11 +39,19 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'pos', label: 'POS Terminal (Sell)', icon: ShoppingBag },
+    { 
+      id: 'waiter_orders', 
+      label: 'Waiter Orders', 
+      icon: UtensilsCrossed, 
+      badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined 
+    },
+    { id: 'tables', label: 'Restaurant Tables', icon: Grid },
+    { id: 'waiter_performance', label: 'Staff Performance', icon: Award },
     { id: 'products', label: 'Products', icon: Package },
     { id: 'stock', label: 'Stock & Additions', icon: Layers },
     { id: 'sales', label: 'Sales Reports', icon: Receipt },
     { id: 'closings', label: 'Daily Closings', icon: CalendarCheck },
-    { id: 'cashiers', label: 'Staff / Cashiers', icon: Users },
+    { id: 'cashiers', label: 'Staff Accounts', icon: Users },
     { id: 'audit', label: 'Audit Logs', icon: ShieldAlert },
     { id: 'printer', label: 'Printer Settings', icon: Printer },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -64,14 +84,21 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold transition-all cursor-pointer ${
                     isActive
                       ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
                       : 'hover:bg-slate-800 text-slate-300 hover:text-white'
                   }`}
                 >
-                  <Icon className="w-5 h-5 shrink-0" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center space-x-3">
+                    <Icon className="w-5 h-5 shrink-0" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-500 text-slate-950 animate-pulse">
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
