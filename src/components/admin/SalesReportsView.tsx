@@ -6,6 +6,7 @@ import { formatCurrency } from '../../lib/utils';
 import { Receipt, Search, Download, Calendar, Filter, DollarSign, ShoppingBag, RotateCcw, Trash2, Printer } from 'lucide-react';
 import { clearAllPaymentRecords } from '../../lib/offlineManager';
 import { ReceiptModal } from '../common/ReceiptModal';
+import { ThermalReceipt } from '../../printer/ThermalReceipt';
 
 interface SalesReportsViewProps {
   user: UserProfile;
@@ -209,7 +210,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Sales Reports & Analytics</h2>
           <p className="text-sm text-gray-500">Filter, inspect, and export historical bar sales data</p>
@@ -232,7 +233,23 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
             <Download className="w-4 h-4" />
             <span>Export CSV Report</span>
           </button>
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center space-x-2 rounded-2xl border border-amber-600 bg-amber-50 hover:bg-amber-100 text-amber-800 px-4 py-3 text-sm font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print All Receipts</span>
+          </button>
         </div>
+      </div>
+
+      {/* Hidden print container for all receipts */}
+      <div className="hidden print:block space-y-4">
+        {filteredSales.map((sale) => (
+          <div key={sale.id} className="break-after-page">
+            <ThermalReceipt sale={sale} businessConfig={businessConfig} />
+          </div>
+        ))}
       </div>
 
       {success && (
@@ -248,7 +265,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
       )}
 
       {/* Summary KPI Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:hidden">
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Filtered Total Sales</p>
           <p className="text-2xl font-black text-amber-700 mt-1">{formatCurrency(totalSalesAmount, currency)}</p>
@@ -264,7 +281,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
       </div>
 
       {/* Filter Controls */}
-      <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-xs grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-xs grid grid-cols-1 sm:grid-cols-4 gap-4 print:hidden">
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Date Filter</label>
           <select
@@ -342,7 +359,7 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-3xl border border-gray-200 shadow-xs overflow-hidden">
+        <div className="bg-white rounded-3xl border border-gray-200 shadow-xs overflow-hidden print:hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
