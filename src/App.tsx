@@ -11,6 +11,7 @@ import { CashierDashboard } from './components/cashier/CashierDashboard';
 import { RecordSaleView } from './components/cashier/RecordSaleView';
 import { CashierSalesView } from './components/cashier/CashierSalesView';
 import { CashierStockView } from './components/cashier/CashierStockView';
+import { DailyOpeningView } from './components/cashier/DailyOpeningView';
 import { DailyClosingView } from './components/cashier/DailyClosingView';
 import { WaiterOrdersView } from './components/cashier/WaiterOrdersView';
 
@@ -36,7 +37,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   // Navigation tab states
-  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing'>('dashboard');
+  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
   useEffect(() => {
@@ -190,20 +191,29 @@ export default function App() {
             businessConfig={businessConfig}
           />
         )}
-        {cashierTab === 'sales' && (
-          <CashierSalesView
+        {cashierTab === 'opening_stock' && (
+          <DailyOpeningView
             user={userProfile}
             businessConfig={businessConfig}
+            onComplete={() => setCashierTab('dashboard')}
           />
         )}
         {cashierTab === 'stock' && (
           <CashierStockView
             user={userProfile}
             businessConfig={businessConfig}
+            onNavigateToOpening={() => setCashierTab('opening_stock')}
+            onNavigateToClosing={() => setCashierTab('closing')}
           />
         )}
         {cashierTab === 'closing' && (
           <DailyClosingView
+            user={userProfile}
+            businessConfig={businessConfig}
+          />
+        )}
+        {cashierTab === 'sales' && (
+          <CashierSalesView
             user={userProfile}
             businessConfig={businessConfig}
           />

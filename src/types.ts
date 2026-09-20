@@ -73,6 +73,8 @@ export interface BusinessConfig {
   name: string;
   logoUrl?: string;
   phone: string;
+  tillNumber?: string; // M-Pesa Buy Goods Till Number (printed on receipt)
+  paybillNumber?: string; // Optional Paybill Number
   location: string;
   address: string;
   currency: string; // e.g. "KSh"
@@ -130,6 +132,7 @@ export interface Sale {
   amountTendered?: number;
   change?: number;
   referenceCode?: string;
+  tillNumber?: string; // Active till number for the transaction
   cashierId: string;
   cashierName: string;
   waiterId?: string;
@@ -172,12 +175,42 @@ export interface BusinessDay {
   createdAt: number;
 }
 
+export interface OpeningItem {
+  productId: string;
+  productName: string;
+  categoryName?: string;
+  unitType?: string;
+  previousStock: number;
+  openingStock: number;
+  variance?: number; // openingStock - previousStock
+  notes?: string;
+}
+
+export interface DailyOpening {
+  id: string; // YYYY-MM-DD-cashierId
+  businessDayId: string;
+  date: string;
+  cashierId: string;
+  cashierName: string;
+  items: OpeningItem[];
+  totalOpeningUnits: number;
+  notes?: string;
+  submittedAt: number;
+  status: 'confirmed';
+}
+
 export interface ClosingItem {
   productId: string;
   productName: string;
+  categoryName?: string;
+  openingStock?: number;
+  stockAdded?: number;
+  soldQuantity?: number;
   expected: number;
   actual: number;
   variance: number; // actual - expected
+  buyingPrice?: number;
+  sellingPrice?: number;
 }
 
 export interface DailyClosing {
@@ -196,6 +229,8 @@ export interface DailyClosing {
   };
   totalTransactions: number;
   totalItemsSold: number;
+  cashierDeclaredCash?: number;
+  cashVariance?: number;
   notes?: string;
   submittedAt: number;
   status: 'submitted' | 'reviewed';

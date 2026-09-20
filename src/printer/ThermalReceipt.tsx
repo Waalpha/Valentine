@@ -16,6 +16,7 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
   const businessName = businessConfig?.name || 'Club Valentine';
   const address = businessConfig?.address || 'Nairobi CBD';
   const phone = businessConfig?.phone || '+254 712 345 678';
+  const tillNumber = sale.tillNumber || businessConfig?.tillNumber || '5849201';
   const footer = businessConfig?.receiptFooter || 'Thank you! Please drink responsibly.';
 
   const subtotal = sale.totalAmount;
@@ -83,6 +84,13 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
         <h1 className={`${fontSizes.header} font-bold uppercase tracking-wider`}>{businessName}</h1>
         <p className={`${fontSizes.meta} text-gray-700`}>{address}</p>
         <p className={`${fontSizes.meta} text-gray-700`}>Tel: {phone}</p>
+        {tillNumber && (
+          <div className="pt-0.5">
+            <span className={`${fontSizes.meta} font-black text-gray-900 border border-gray-400 px-2 py-0.5 rounded tracking-wide inline-block bg-gray-50`}>
+              TILL NO: {tillNumber}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Meta Information */}
@@ -115,6 +123,12 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
           <span className="text-gray-600">Payment:</span>
           <span className="font-bold text-emerald-800">{sale.paymentMethod}</span>
         </div>
+        {tillNumber && (
+          <div className="flex justify-between font-bold">
+            <span className="text-gray-600">Till No:</span>
+            <span>{tillNumber}</span>
+          </div>
+        )}
         {sale.referenceCode && (
           <div className="flex justify-between">
             <span className="text-gray-600">Ref Code:</span>
@@ -170,6 +184,14 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
           </div>
         )}
       </div>
+
+      {/* Lipa Na M-Pesa Till Banner */}
+      {tillNumber && (
+        <div className="border-t border-dashed border-gray-400 py-1.5 text-center bg-gray-50/80 rounded my-1">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-700">LIPA NA M-PESA • BUY GOODS</p>
+          <p className="text-xs font-black tracking-widest text-gray-900 font-mono">TILL: {tillNumber}</p>
+        </div>
+      )}
 
       {/* Receipt Verification ID */}
       <div className="border-t border-dashed border-gray-400 pt-1.5 pb-0.5 text-center flex flex-col items-center justify-center">

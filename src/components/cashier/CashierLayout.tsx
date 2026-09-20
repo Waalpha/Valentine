@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, BusinessConfig } from '../../types';
 import { auth, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { logAuditAction, formatCurrency } from '../../lib/utils';
-import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2, UtensilsCrossed } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2, UtensilsCrossed, Sunrise } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 import { subscribeOrders } from '../../lib/orderService';
 
 interface CashierLayoutProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  activeTab: 'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing';
-  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'sales' | 'stock' | 'closing') => void;
+  activeTab: 'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales';
+  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales') => void;
   onLogout: () => void;
   children?: React.ReactNode;
 }
@@ -68,9 +68,10 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
       badgeColor: 'bg-amber-500 text-slate-950 font-black animate-pulse'
     },
-    { id: 'sales', label: "Today's Sales", icon: Receipt },
+    { id: 'opening_stock', label: 'Opening Stock', icon: Sunrise },
     { id: 'stock', label: 'Stock Status', icon: Package },
-    { id: 'closing', label: 'End-of-Day', icon: CalendarCheck },
+    { id: 'closing', label: 'Closing Stock', icon: CalendarCheck },
+    { id: 'sales', label: "Today's Sales", icon: Receipt },
   ];
 
   return (

@@ -829,7 +829,9 @@ export function WaiterOrdersView({ user, businessConfig }: WaiterOrdersViewProps
                       className="w-full p-3 rounded-xl border border-emerald-300 bg-white text-sm font-bold text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 uppercase tracking-wide placeholder:normal-case placeholder:font-normal"
                     />
                     <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-gray-500 pt-0.5">
-                      <span>Customer confirms payment to your till or paybill</span>
+                      <span>
+                        Pay to Till: <strong className="text-emerald-700 font-mono font-bold">{businessConfig?.tillNumber || '5849201'}</strong>
+                      </span>
                       <div className="flex gap-1.5">
                         <button
                           type="button"

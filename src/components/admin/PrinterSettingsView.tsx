@@ -200,6 +200,7 @@ export function PrinterSettingsView({ user, businessConfig, onConfigUpdated }: P
     amountTendered: 1000,
     change: 0,
     referenceCode: 'QD892JK12',
+    tillNumber: businessConfig?.tillNumber || '5849201',
     cashierId: user.uid,
     cashierName: user.name || 'Bar Cashier',
     businessDayId: '2026-09-12',

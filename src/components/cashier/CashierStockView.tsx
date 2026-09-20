@@ -2,15 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { UserProfile, BusinessConfig, Product, Sale } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Package, Search, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Package, Search, AlertTriangle, CheckCircle, XCircle, Sunrise, CalendarCheck, ArrowRight } from 'lucide-react';
 import { getLocalCachedProducts, cacheLocalProducts } from '../../lib/offlineManager';
 
 interface CashierStockViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
+  onNavigateToOpening?: () => void;
+  onNavigateToClosing?: () => void;
 }
 
-export function CashierStockView({ user, businessConfig }: CashierStockViewProps) {
+export function CashierStockView({ user, businessConfig, onNavigateToOpening, onNavigateToClosing }: CashierStockViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const [products, setProducts] = useState<Product[]>([]);
   const [soldMap, setSoldMap] = useState<Record<string, number>>({});
@@ -103,13 +105,36 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Bar Stock Status</h2>
           <p className="text-sm text-gray-500">Live inventory tracking for today's shift</p>
         </div>
-        <div className="flex items-center space-x-2">
-          <div className="relative flex-1 sm:w-72">
+        
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onNavigateToOpening && (
+            <button
+              type="button"
+              onClick={onNavigateToOpening}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all active:scale-95"
+            >
+              <Sunrise className="w-4 h-4 text-amber-200" />
+              <span>Take Opening Stock</span>
+            </button>
+          )}
+
+          {onNavigateToClosing && (
+            <button
+              type="button"
+              onClick={onNavigateToClosing}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer transition-all active:scale-95"
+            >
+              <CalendarCheck className="w-4 h-4 text-amber-400" />
+              <span>Take Closing Stock</span>
+            </button>
+          )}
+
+          <div className="relative flex-1 sm:w-64">
             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
               <Search className="w-4 h-4" />
             </div>
@@ -118,7 +143,7 @@ export function CashierStockView({ user, businessConfig }: CashierStockViewProps
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search products..."
-              className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+              className="w-full rounded-xl border border-gray-300 bg-white py-2 pl-10 pr-4 text-sm text-gray-900 placeholder-gray-400 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
             />
           </div>
         </div>

@@ -17,6 +17,7 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     id: DEFAULT_BUSINESS_ID,
     name: 'Club Valentine',
     phone: '+254 712 345 678',
+    tillNumber: '5849201',
     location: 'Nairobi CBD',
     address: 'Tom Mboya Street, Nairobi',
     currency: 'KSh',
@@ -116,6 +117,19 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-2">
+              M-Pesa Till Number (On Receipt)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 5849201"
+              value={formData.tillNumber || ''}
+              onChange={(e) => setFormData({ ...formData, tillNumber: e.target.value })}
+              className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none font-mono font-bold"
             />
           </div>
 

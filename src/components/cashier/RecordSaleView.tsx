@@ -271,6 +271,7 @@ export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders 
         amountTendered: parsedTendered,
         change: changeDue,
         referenceCode: referenceCode.trim() || undefined,
+        tillNumber: businessConfig?.tillNumber || '5849201',
         cashierId: user.uid,
         cashierName: user.name,
         businessDayId: todayStr,
@@ -937,7 +938,9 @@ export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders 
                   className="w-full px-3.5 py-2.5 rounded-xl border-2 border-emerald-500/80 bg-slate-900 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 uppercase tracking-wide placeholder:normal-case placeholder:font-normal"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-400 pt-0.5">
-                  <span>Customer confirms payment to your till/paybill</span>
+                  <span>
+                    Pay to Till: <strong className="text-emerald-300 font-mono text-xs">{businessConfig?.tillNumber || '5849201'}</strong>
+                  </span>
                   <div className="flex gap-1.5">
                     <button
                       type="button"

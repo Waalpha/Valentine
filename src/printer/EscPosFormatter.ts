@@ -139,6 +139,7 @@ export class EscPosFormatter {
     const businessName = businessConfig?.name || 'CLUB VALENTINE';
     const address = businessConfig?.address || 'Nairobi CBD';
     const phone = businessConfig?.phone || '+254 712 345 678';
+    const tillNumber = sale.tillNumber || businessConfig?.tillNumber || '5849201';
     const footer = businessConfig?.receiptFooter || 'Thank you! Please drink responsibly.';
 
     // Initialize formatting based on font settings
@@ -153,6 +154,13 @@ export class EscPosFormatter {
     }
     formatter.addLine(address);
     formatter.addLine(`Tel: ${phone}`);
+    if (tillNumber) {
+      formatter.setBold(true);
+      formatter.addLine(`BUY GOODS TILL: ${tillNumber}`);
+      if (!settings.bold) {
+        formatter.setBold(false);
+      }
+    }
     formatter.addSeparator('=');
 
     // Meta
@@ -167,6 +175,9 @@ export class EscPosFormatter {
       formatter.addLine(`Table:    ${sale.tableName}`);
     }
     formatter.addLine(`Payment:  ${sale.paymentMethod}`);
+    if (tillNumber) {
+      formatter.addLine(`Till No:  ${tillNumber}`);
+    }
     if (sale.referenceCode) {
       formatter.addLine(`Ref Code: ${sale.referenceCode}`);
     }
@@ -295,6 +306,9 @@ export class EscPosFormatter {
     formatter.setAlignment('left');
     formatter.addLine('Printer connected successfully!');
     formatter.addLine(`Time: ${new Date().toLocaleString()}`);
+    if (businessConfig?.tillNumber) {
+      formatter.addLine(`Till No:    ${businessConfig.tillNumber}`);
+    }
     formatter.addLine(`Font Style: ${settings.fontStyle.toUpperCase()}`);
     formatter.addLine(`Font Size:  ${settings.fontSize.toUpperCase()}`);
     formatter.addLine(`Bold Mode:  ${settings.bold ? 'YES' : 'NO'}`);

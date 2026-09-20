@@ -12,6 +12,7 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
         id: DEFAULT_BUSINESS_ID,
         name: "Club Valentine",
         phone: "+254 712 345 678",
+        tillNumber: "5849201",
         location: "Nairobi CBD",
         address: "Tom Mboya Street, Nairobi",
         currency: "KSh",
@@ -24,11 +25,16 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
       await setDoc(bizRef, defaultBiz);
     } else {
       const currentData = bizSnap.data() as BusinessConfig;
+      const updates: Partial<BusinessConfig> = {};
       if (currentData.name?.includes('Savanna')) {
-        await setDoc(bizRef, {
-          name: "Club Valentine",
-          receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant"
-        }, { merge: true });
+        updates.name = "Club Valentine";
+        updates.receiptHeader = "CLUB VALENTINE\nOfficial Bar & Restaurant";
+      }
+      if (!currentData.tillNumber) {
+        updates.tillNumber = "5849201";
+      }
+      if (Object.keys(updates).length > 0) {
+        await setDoc(bizRef, updates, { merge: true });
       }
     }
 

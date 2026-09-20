@@ -537,6 +537,7 @@ export async function processWaiterOrderPayment(
     amountTendered: paymentData.amountTendered,
     change: paymentData.change,
     referenceCode: paymentData.referenceCode?.trim() || undefined,
+    tillNumber: businessConfig?.tillNumber || '5849201',
     cashierId: cashier.uid,
     cashierName: cashier.name,
     waiterId: order.waiterId,
