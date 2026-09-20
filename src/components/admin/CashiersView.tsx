@@ -80,16 +80,23 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
           role: role,
           pin: pin.trim() || undefined
         };
+        if (password.trim()) {
+          updatedProfile.password = password.trim();
+        }
+
         try {
           await updateDoc(doc(db, 'users', editingUser.uid), updatedProfile);
         } catch (dbErr) {
-          const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
-          const idx = localUsers.findIndex((u: UserProfile) => u.uid === editingUser.uid);
-          if (idx !== -1) {
-            localUsers[idx] = { ...localUsers[idx], ...updatedProfile };
-            localStorage.setItem('bar_pos_local_users', JSON.stringify(localUsers));
-          }
+          console.warn('Could not update Firestore user directly:', dbErr);
         }
+
+        const localUsers = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
+        const idx = localUsers.findIndex((u: UserProfile) => u.uid === editingUser.uid);
+        if (idx !== -1) {
+          localUsers[idx] = { ...localUsers[idx], ...updatedProfile };
+          localStorage.setItem('bar_pos_local_users', JSON.stringify(localUsers));
+        }
+
         await logAuditAction(user.uid, user.name, 'USER_UPDATED', `Updated account for ${name} (${email})`, editingUser.uid);
         setSuccess(`Successfully updated account for ${name}!`);
       } else {
@@ -255,10 +262,15 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                       </span>
                     </td>
                     <td className="p-4">
-                      <span className="inline-flex items-center space-x-1 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
-                        <KeyRound className="w-3 h-3 text-amber-600" />
-                        <span>{u.pin || (u.role === 'admin' ? '1234' : u.role === 'manager' ? '3333' : u.role === 'waiter' ? '4444' : '1111')}</span>
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex items-center space-x-1 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 w-fit">
+                          <KeyRound className="w-3 h-3 text-amber-600" />
+                          <span>{u.pin || 'No PIN'}</span>
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          Password: {u.password ? 'Custom password set' : (u.pin ? 'Uses assigned PIN' : 'Not set')}
+                        </span>
+                      </div>
                     </td>
                     <td className="p-4 text-center">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
@@ -353,19 +365,22 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                 />
               </div>
 
-              {!editingUser && (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  {editingUser ? 'Password (leave blank to keep current)' : 'Password'}
+                </label>
+                <input
+                  type="password"
+                  required={!editingUser}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={editingUser ? 'Leave blank to keep current password' : '••••••••'}
+                  className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Each user must have their own unique password for signing in.
+                </p>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
@@ -379,12 +394,12 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                     maxLength={6}
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                    placeholder={role === 'admin' ? '1234 (default)' : role === 'manager' ? '3333 (default)' : role === 'waiter' ? '4444 (default)' : '1111 (default)'}
+                    placeholder={role === 'admin' ? 'e.g. 8888' : role === 'manager' ? 'e.g. 3333' : role === 'waiter' ? 'e.g. 4444' : 'e.g. 1111'}
                     className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none font-mono tracking-widest"
                   />
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">
-                  4-digit number staff can punch into the full-screen numeric pad to unlock POS.
+                  Each user must have their own unique PIN to punch into the terminal keypad.
                 </p>
               </div>
 

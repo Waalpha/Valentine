@@ -1,5 +1,5 @@
 import { db, DEFAULT_BUSINESS_ID } from './firebase';
-import { doc, getDoc, setDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore';
 import { BusinessConfig, Category, Product, BusinessDay, UserProfile } from '../types';
 
 export async function initializeDatabase(currentUser?: { uid: string; email?: string; displayName?: string }) {
@@ -225,7 +225,112 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
       await setDoc(dayRef, todayDay);
     }
 
-    // 5. Ensure current user profile exists in Firestore users collection
+    // 5. Ensure each default staff account exists with their own individual password and PIN
+    const defaultStaffUsers: UserProfile[] = [
+      {
+        uid: 'user-mary-waiter',
+        name: 'Mary',
+        email: 'mary@clubpaxx.com',
+        role: 'waiter',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '4444',
+        password: 'mary@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'user-john-waiter',
+        name: 'John',
+        email: 'john@clubpaxx.com',
+        role: 'waiter',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '5555',
+        password: 'john@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'user-atieno-cashier',
+        name: 'Atieno',
+        email: 'atieno@clubpaxx.com',
+        role: 'cashier',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '1111',
+        password: 'atieno@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'user-mercy-cashier',
+        name: 'Mercy',
+        email: 'mercy@clubpaxx.com',
+        role: 'cashier',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '2222',
+        password: 'mercy@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'user-manager',
+        name: 'Bar Manager',
+        email: 'manager@clubpaxx.com',
+        role: 'manager',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '3333',
+        password: 'manager@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'user-cecilia-admin',
+        name: 'Cecilia Wangech',
+        email: 'owner@clubpaxx.com',
+        role: 'admin',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '8888',
+        password: 'owner@clubpaxx',
+        createdAt: new Date().toISOString()
+      },
+      {
+        uid: 'local-user-admin',
+        name: 'Master Admin',
+        email: 'admin@barpos.com',
+        role: 'admin',
+        businessId: DEFAULT_BUSINESS_ID,
+        status: 'active',
+        pin: '7777',
+        password: 'admin@barpos',
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    for (const staff of defaultStaffUsers) {
+      try {
+        const userRef = doc(db, 'users', staff.uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) {
+          await setDoc(userRef, staff);
+        } else {
+          const currentData = userSnap.data() as UserProfile;
+          const updates: Partial<UserProfile> = {};
+          if (!currentData.password) {
+            updates.password = staff.password;
+          }
+          if (!currentData.pin) {
+            updates.pin = staff.pin;
+          }
+          if (Object.keys(updates).length > 0) {
+            await updateDoc(userRef, updates);
+          }
+        }
+      } catch (staffErr) {
+        console.warn('Could not sync staff member in Firestore:', staffErr);
+      }
+    }
+
+    // 6. Ensure current user profile exists in Firestore users collection
     if (currentUser && currentUser.uid) {
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
@@ -239,6 +344,8 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
           role: role,
           businessId: DEFAULT_BUSINESS_ID,
           status: 'active',
+          pin: role === 'admin' ? '7777' : '1111',
+          password: role === 'admin' ? 'admin@barpos' : 'cashier@clubpaxx',
           createdAt: new Date().toISOString()
         };
         await setDoc(userRef, profile);

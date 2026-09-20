@@ -11,6 +11,7 @@ export interface UserProfile {
   status: 'active' | 'disabled' | 'deleted';
   createdAt: string;
   pin?: string;
+  password?: string;
 }
 
 export type TableStatus = 'available' | 'occupied' | 'order_pending' | 'served' | 'payment_pending';

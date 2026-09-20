@@ -205,6 +205,7 @@ const DEFAULT_STAFF: UserProfile[] = [
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
     pin: '4444',
+    password: 'mary@clubpaxx',
     createdAt: new Date().toISOString()
   },
   {
@@ -215,6 +216,7 @@ const DEFAULT_STAFF: UserProfile[] = [
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
     pin: '5555',
+    password: 'john@clubpaxx',
     createdAt: new Date().toISOString()
   },
   {
@@ -225,26 +227,7 @@ const DEFAULT_STAFF: UserProfile[] = [
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
     pin: '1111',
-    createdAt: new Date().toISOString()
-  },
-  {
-    uid: 'local-user-admin',
-    name: 'Master Owner',
-    email: 'admin@barpos.com',
-    role: 'admin',
-    businessId: DEFAULT_BUSINESS_ID,
-    status: 'active',
-    pin: '1234',
-    createdAt: new Date().toISOString()
-  },
-  {
-    uid: 'user-manager',
-    name: 'Bar Manager',
-    email: 'manager@clubpaxx.com',
-    role: 'manager',
-    businessId: DEFAULT_BUSINESS_ID,
-    status: 'active',
-    pin: '3333',
+    password: 'atieno@clubpaxx',
     createdAt: new Date().toISOString()
   },
   {
@@ -255,6 +238,18 @@ const DEFAULT_STAFF: UserProfile[] = [
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
     pin: '2222',
+    password: 'mercy@clubpaxx',
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'user-manager',
+    name: 'Bar Manager',
+    email: 'manager@clubpaxx.com',
+    role: 'manager',
+    businessId: DEFAULT_BUSINESS_ID,
+    status: 'active',
+    pin: '3333',
+    password: 'manager@clubpaxx',
     createdAt: new Date().toISOString()
   },
   {
@@ -264,7 +259,19 @@ const DEFAULT_STAFF: UserProfile[] = [
     role: 'admin',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
-    pin: '1234',
+    pin: '8888',
+    password: 'owner@clubpaxx',
+    createdAt: new Date().toISOString()
+  },
+  {
+    uid: 'local-user-admin',
+    name: 'Master Admin',
+    email: 'admin@barpos.com',
+    role: 'admin',
+    businessId: DEFAULT_BUSINESS_ID,
+    status: 'active',
+    pin: '7777',
+    password: 'admin@barpos',
     createdAt: new Date().toISOString()
   }
 ];
@@ -427,12 +434,13 @@ export function Login({ onLoginSuccess }: LoginProps) {
     }
   };
 
-  // Validate entered PIN
+  // Validate entered PIN - strictly enforces that every user must use their own password / PIN
   const verifyAndSubmitPin = useCallback((pinToVerify: string, targetUser: UserProfile | null) => {
     setError('');
     setShakeError(false);
 
-    if (!pinToVerify || pinToVerify.length < 3) {
+    const entered = pinToVerify.trim();
+    if (!entered || entered.length < 3) {
       setError('Please enter at least 4 digits');
       setShakeError(true);
       return;
@@ -440,79 +448,48 @@ export function Login({ onLoginSuccess }: LoginProps) {
 
     setLoading(true);
 
-    // 1. If staff was pre-selected
+    // 1. If staff was pre-selected (user clicked their staff card)
     if (targetUser) {
       const userPin = targetUser.pin?.trim();
       const userPassword = (targetUser as any).password?.trim();
 
-      if (userPin && userPin === pinToVerify) {
-        completeLogin(targetUser);
-        return;
-      }
-      if (userPassword && userPassword === pinToVerify) {
+      // Only accept THIS specific user's own PIN or password
+      const isPinMatch = Boolean(userPin && userPin === entered);
+      const isPasswordMatch = Boolean(userPassword && userPassword === entered);
+
+      if (isPinMatch || isPasswordMatch) {
         completeLogin(targetUser);
         return;
       }
 
-      if ((targetUser.role === 'admin' || targetUser.role === 'manager') && ['1234', '0000', '9999', '3333'].includes(pinToVerify)) {
-        completeLogin(targetUser);
-        return;
-      }
-      if (targetUser.role === 'cashier' && ['1111', '1234', '2222', '0000'].includes(pinToVerify)) {
-        completeLogin(targetUser);
-        return;
-      }
-
-      if (!userPin && !userPassword && pinToVerify.length >= 4) {
-        completeLogin(targetUser);
-        return;
-      }
-
-      setError(`Incorrect PIN for ${targetUser.name}. Please try again.`);
+      setError(`Incorrect PIN for ${targetUser.name}. Every staff member must use their own assigned password.`);
       setShakeError(true);
       setLoading(false);
       setPin('');
       return;
     }
 
-    // 2. Direct PIN Entry on Keypad
-    const matchByPin = knownUsers.find(u => u.pin && u.pin.trim() === pinToVerify && u.status !== 'disabled');
-    if (matchByPin) {
-      completeLogin(matchByPin);
+    // 2. Direct PIN Entry on Keypad (user punched PIN without clicking a card first)
+    // Find matching active user who owns this PIN or password
+    const matchingUsers = knownUsers.filter(u => 
+      u.status !== 'disabled' && u.status !== 'deleted' && (
+        (u.pin && u.pin.trim() === entered) ||
+        ((u as any).password && (u as any).password.trim() === entered)
+      )
+    );
+
+    if (matchingUsers.length === 1) {
+      completeLogin(matchingUsers[0]);
+      return;
+    } else if (matchingUsers.length > 1) {
+      setError('Multiple accounts match this PIN. Please select your specific staff profile card.');
+      setShakeError(true);
+      setLoading(false);
+      setPin('');
       return;
     }
 
-    const matchByPass = knownUsers.find(u => (u as any).password && (u as any).password.trim() === pinToVerify && u.status !== 'disabled');
-    if (matchByPass) {
-      completeLogin(matchByPass);
-      return;
-    }
-
-    if (pinToVerify === '1234' || pinToVerify === '0000' || pinToVerify === '9999') {
-      const admin = knownUsers.find(u => u.role === 'admin' && u.status === 'active') || DEFAULT_STAFF[1];
-      completeLogin(admin);
-      return;
-    }
-
-    if (pinToVerify === '3333') {
-      const manager = knownUsers.find(u => u.role === 'manager' && u.status === 'active') || DEFAULT_STAFF[2];
-      completeLogin(manager);
-      return;
-    }
-
-    if (pinToVerify === '1111') {
-      const cashier = knownUsers.find(u => u.name.toLowerCase().includes('atieno') || (u.role === 'cashier' && u.status === 'active')) || DEFAULT_STAFF[0];
-      completeLogin(cashier);
-      return;
-    }
-
-    if (pinToVerify === '2222') {
-      const cashier = knownUsers.find(u => u.name.toLowerCase().includes('mercy')) || DEFAULT_STAFF[2];
-      completeLogin(cashier);
-      return;
-    }
-
-    setError('Unrecognized PIN code. Please select your staff profile or enter a valid PIN.');
+    setError('Incorrect PIN. Please enter your own assigned staff PIN or select your profile.');
     setShakeError(true);
     setLoading(false);
     setPin('');
@@ -595,6 +572,19 @@ export function Login({ onLoginSuccess }: LoginProps) {
     setLoading(true);
 
     const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail) {
+      setError('Please enter your email address.');
+      setLoading(false);
+      return;
+    }
+
+    if (!cleanPassword) {
+      setError('Please enter your password.');
+      setLoading(false);
+      return;
+    }
 
     if (cleanEmail === 'cashier@barpos.com') {
       setError('The default demo cashier has been updated. Please log in with an active staff account.');
@@ -602,63 +592,72 @@ export function Login({ onLoginSuccess }: LoginProps) {
       return;
     }
 
+    // Helper to test if entered password matches this user's password or PIN
+    const verifyUserPassword = (target: UserProfile): boolean => {
+      const uPass = (target as any).password?.trim();
+      const uPin = target.pin?.trim();
+      return Boolean((uPass && uPass === cleanPassword) || (uPin && uPin === cleanPassword));
+    };
+
+    // 1. Check in-memory knownUsers
     const matchedInMemory = knownUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
     if (matchedInMemory) {
-      completeLogin(matchedInMemory);
-      return;
+      if (verifyUserPassword(matchedInMemory)) {
+        completeLogin(matchedInMemory);
+        return;
+      } else {
+        setError(`Incorrect password for ${matchedInMemory.name}. Every user must use their own password.`);
+        setLoading(false);
+        return;
+      }
     }
 
+    // 2. Check localStorage cached users
     try {
       const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('bar_pos_local_users') || '[]');
       const matchedLocal = localUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
       if (matchedLocal) {
-        completeLogin(matchedLocal);
-        return;
+        if (verifyUserPassword(matchedLocal)) {
+          completeLogin(matchedLocal);
+          return;
+        } else {
+          setError(`Incorrect password for ${matchedLocal.name}. Every user must use their own password.`);
+          setLoading(false);
+          return;
+        }
       }
     } catch (e) {
       // ignore
     }
 
+    // 3. Query Firestore users collection
     try {
-      const firestorePromise = (async () => {
-        const snap = await getDocs(collection(db, 'users'));
-        let found: UserProfile | null = null;
-        snap.forEach((d) => {
-          const u = { uid: d.id, ...d.data() } as UserProfile;
-          if (u.email && u.email.toLowerCase() === cleanEmail) {
-            found = u;
-          }
-        });
-        return found;
-      })();
-
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
-      const firestoreUser = await Promise.race([firestorePromise, timeoutPromise]);
+      const snap = await getDocs(collection(db, 'users'));
+      let firestoreUser: UserProfile | null = null;
+      snap.forEach((d) => {
+        const u = { uid: d.id, ...d.data() } as UserProfile;
+        if (u.email && u.email.toLowerCase() === cleanEmail) {
+          firestoreUser = u;
+        }
+      });
 
       if (firestoreUser) {
-        completeLogin(firestoreUser);
-        return;
+        if (verifyUserPassword(firestoreUser)) {
+          completeLogin(firestoreUser);
+          return;
+        } else {
+          setError(`Incorrect password for ${(firestoreUser as UserProfile).name}. Every user must use their own password.`);
+          setLoading(false);
+          return;
+        }
       }
     } catch (err) {
       console.warn('Direct user query error:', err);
     }
 
-    const isOwner = cleanEmail.includes('owner') || cleanEmail.includes('admin');
-    const role: 'admin' | 'cashier' = isOwner ? 'admin' : 'cashier';
-    const name = isOwner ? 'Club Owner' : 'Bar Cashier';
-
-    const fallbackProfile: UserProfile = {
-      uid: 'user-' + Date.now(),
-      email: cleanEmail,
-      name,
-      role,
-      businessId: DEFAULT_BUSINESS_ID,
-      status: 'active',
-      createdAt: new Date().toISOString()
-    };
-
-    setDoc(doc(db, 'users', fallbackProfile.uid), fallbackProfile).catch(() => {});
-    completeLogin(fallbackProfile);
+    // No valid account found for this email
+    setError(`No registered account found with email "${cleanEmail}". Please check your email or contact management.`);
+    setLoading(false);
   };
 
   const keyLetters: Record<string, string> = {
