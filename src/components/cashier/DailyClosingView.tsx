@@ -28,7 +28,7 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
   const todayStr = new Date().toISOString().split('T')[0];
   const closingDocId = `${todayStr}-${user.uid}`;
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
   const [soldMap, setSoldMap] = useState<Record<string, number>>({});
   const [actualCounts, setActualCounts] = useState<Record<string, number>>({});
   const [salesSummary, setSalesSummary] = useState({
@@ -49,7 +49,7 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [existingClosing, setExistingClosing] = useState<DailyClosing | null>(null);
   const [isEditingExisting, setIsEditingExisting] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -138,9 +138,10 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       console.warn("Local closings parse error:", e);
     }
 
-    // 2. Offline fallback immediate population
+    // 2. Immediate local data population for instant UI render (0ms delay)
+    populateLocalData();
+
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      populateLocalData();
       setLoading(false);
       return;
     }

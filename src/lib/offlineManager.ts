@@ -345,15 +345,15 @@ export function initAutoSync() {
     }
   }, 15000);
 
-  // 5. Initial startup check after 1 second
-  if (navigator.onLine) {
+  // 5. Initial startup check after UI has comfortably loaded
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
     setTimeout(() => {
       const status = getOfflineStatus();
       if (status.pendingTotalCount > 0) {
         console.log('[OfflineManager] Startup sync check: pushing pending records...');
         syncAllOfflineData().catch(() => {});
       }
-    }, 1200);
+    }, 3500);
   }
 }
 

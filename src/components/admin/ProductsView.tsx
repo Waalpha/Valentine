@@ -4,13 +4,16 @@ import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
 import { Package, Plus, Search, Edit2, Trash2, X, AlertCircle, Download, Upload, Sparkles, PackagePlus, CheckCircle2, Layers, RefreshCw, AlertTriangle } from 'lucide-react';
-import { cacheLocalProducts, getLocalCachedProducts } from '../../lib/offlineManager';
+import { cacheLocalProducts, getLocalCachedProducts, getLocalCachedCategories } from '../../lib/offlineManager';
 import { 
   addAllProductsToInventory, 
   removeAllProductsFromInventory, 
   addStockToAllProducts, 
   STANDARD_INVENTORY_PRODUCTS 
 } from '../../lib/inventoryService';
+
+import { STANDARD_CATEGORIES } from '../../lib/inventoryService';
+import { loadProductsFast, loadCategoriesFast } from '../../lib/productService';
 
 interface ProductsViewProps {
   user: UserProfile;
@@ -19,9 +22,15 @@ interface ProductsViewProps {
 
 export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const cached = getLocalCachedCategories();
+    return cached.length > 0 ? (cached as Category[]) : STANDARD_CATEGORIES;
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    const cached = getLocalCachedProducts(tenantId);
+    return cached.length === 0;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,41 +75,46 @@ export function ProductsView({ user, businessConfig }: ProductsViewProps) {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Safety guard: ensure loading state never hangs longer than 400ms
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 400);
+
     fetchProductsAndCategories();
-  }, []);
+
+    return () => clearTimeout(timer);
+  }, [tenantId]);
 
   async function fetchProductsAndCategories() {
     try {
-      const prodRef = collection(db, 'businesses', tenantId, 'products');
-      const prodSnap = await getDocs(prodRef);
-      const prods: Product[] = [];
-      prodSnap.forEach(d => {
-        const data = d.data();
-        prods.push({ 
-          id: d.id, 
-          ...data
-        } as Product);
-      });
-      setProducts(prods);
-      cacheLocalProducts(prods, tenantId);
-
-      const catRef = collection(db, 'businesses', tenantId, 'categories');
-      const catSnap = await getDocs(catRef);
-      const cats: Category[] = [];
-      catSnap.forEach(d => {
-        cats.push({ id: d.id, ...d.data() } as Category);
-      });
-      setCategories(cats);
-    } catch (err) {
-      console.warn("Using local fallback products due to permission error:", err);
-      try {
-        const localProds = getLocalCachedProducts(tenantId);
+      // 1. Instant load cached products
+      const localProds = getLocalCachedProducts(tenantId);
+      if (localProds.length > 0) {
         setProducts(localProds);
-      } catch (e) {
-        setProducts([]);
-        setCategories([]);
+        setLoading(false);
       }
-    } finally {
+
+      // 2. Refresh from Firestore non-blockingly
+      loadProductsFast(tenantId, (remoteProds) => {
+        setProducts(remoteProds);
+      }).then(prods => {
+        if (prods && prods.length > 0) {
+          setProducts(prods);
+        }
+        setLoading(false);
+      }).catch(() => {
+        setLoading(false);
+      });
+
+      loadCategoriesFast(tenantId, (remoteCats) => {
+        setCategories(remoteCats);
+      }).then(cats => {
+        if (cats && cats.length > 0) {
+          setCategories(cats);
+        }
+      }).catch(() => {});
+    } catch (err) {
+      console.warn("Using local cached products:", err);
       setLoading(false);
     }
   }

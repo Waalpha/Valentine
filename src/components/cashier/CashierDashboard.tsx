@@ -5,6 +5,7 @@ import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firesto
 import { formatCurrency } from '../../lib/utils';
 import { ShoppingCart, Receipt, Package, CalendarCheck, TrendingUp, DollarSign, Layers, UtensilsCrossed, Sunrise, CheckCircle2, ArrowRight } from 'lucide-react';
 import { subscribeOrders } from '../../lib/orderService';
+import { getLocalCachedProducts } from '../../lib/offlineManager';
 
 interface CashierDashboardProps {
   user: UserProfile;
@@ -14,13 +15,52 @@ interface CashierDashboardProps {
 
 export function CashierDashboard({ user, businessConfig, setActiveTab }: CashierDashboardProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
-  const [todaySalesTotal, setTodaySalesTotal] = useState(0);
-  const [todayItemsSold, setTodayItemsSold] = useState(0);
-  const [todayTransactionsCount, setTodayTransactionsCount] = useState(0);
-  const [availableStockTotal, setAvailableStockTotal] = useState(0);
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const [todaySalesTotal, setTodaySalesTotal] = useState<number>(() => {
+    try {
+      const localSales = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
+      return localSales.filter((s: Sale) => s.date === todayStr).reduce((acc: number, s: Sale) => acc + s.totalAmount, 0);
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [todayItemsSold, setTodayItemsSold] = useState<number>(() => {
+    try {
+      const localSales = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
+      return localSales
+        .filter((s: Sale) => s.date === todayStr)
+        .reduce((acc: number, s: Sale) => acc + s.items.reduce((sum: number, i: any) => sum + i.quantity, 0), 0);
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [todayTransactionsCount, setTodayTransactionsCount] = useState<number>(() => {
+    try {
+      const localSales = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
+      return localSales.filter((s: Sale) => s.date === todayStr).length;
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [availableStockTotal, setAvailableStockTotal] = useState<number>(() => {
+    const cached = getLocalCachedProducts(tenantId);
+    return cached.reduce((sum, p) => sum + (p.currentStock !== undefined ? p.currentStock : (p.openingStock || 0)), 0);
+  });
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
-  const [openingStockRecord, setOpeningStockRecord] = useState<DailyOpening | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [openingStockRecord, setOpeningStockRecord] = useState<DailyOpening | null>(() => {
+    try {
+      const localOpenings = JSON.parse(
+        localStorage.getItem(`bar_pos_local_openings_${tenantId}`) || 
+        localStorage.getItem('bar_pos_local_openings') || 
+        '{}'
+      );
+      return localOpenings[`${todayStr}-${user.uid}`] || null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeOrders(tenantId, (orders) => {

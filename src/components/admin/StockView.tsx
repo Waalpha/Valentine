@@ -11,6 +11,9 @@ import {
   STANDARD_INVENTORY_PRODUCTS 
 } from '../../lib/inventoryService';
 
+import { getLocalCachedProducts, cacheLocalProducts } from '../../lib/offlineManager';
+import { loadProductsFast } from '../../lib/productService';
+
 interface StockViewProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
@@ -18,12 +21,21 @@ interface StockViewProps {
 
 export function StockView({ user, businessConfig }: StockViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
-  const [products, setProducts] = useState<Product[]>([]);
-  const [movements, setMovements] = useState<StockMovement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
+  const [movements, setMovements] = useState<StockMovement[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('bar_pos_local_movements') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState<boolean>(() => getLocalCachedProducts(tenantId).length === 0);
 
   // Add stock modal state
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => {
+    const cached = getLocalCachedProducts(tenantId);
+    return cached.length > 0 ? cached[0] : null;
+  });
   const [addQty, setAddQty] = useState<number>(20);
   const [reason, setReason] = useState<string>('New stock delivery from supplier');
   const [error, setError] = useState('');
@@ -42,47 +54,51 @@ export function StockView({ user, businessConfig }: StockViewProps) {
   const [isProcessingAddAllCatalog, setIsProcessingAddAllCatalog] = useState(false);
 
   useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 400);
     fetchStockAndMovements();
-  }, []);
+    return () => clearTimeout(timer);
+  }, [tenantId]);
 
   async function fetchStockAndMovements() {
     try {
-      // Fetch products
-      const prodRef = collection(db, 'businesses', tenantId, 'products');
-      const prodSnap = await getDocs(prodRef);
-      const prods: Product[] = [];
-      prodSnap.forEach(d => {
-        prods.push({ id: d.id, ...d.data() } as Product);
-      });
-      setProducts(prods);
-      if (prods.length > 0 && !selectedProduct) {
-        setSelectedProduct(prods[0]);
+      const localProds = getLocalCachedProducts(tenantId);
+      if (localProds.length > 0) {
+        setProducts(localProds);
+        if (!selectedProduct) setSelectedProduct(localProds[0]);
+        setLoading(false);
       }
 
-      // Fetch stock movements
-      const movRef = collection(db, 'businesses', tenantId, 'stockMovements');
-      const movSnap = await getDocs(movRef);
-      const movs: StockMovement[] = [];
-      movSnap.forEach(d => {
-        movs.push({ id: d.id, ...d.data() } as StockMovement);
-      });
-      movs.sort((a, b) => b.createdAt - a.createdAt);
-      setMovements(movs);
-    } catch (err) {
-      console.warn("Using local fallback stock movements due to permission error:", err);
-      try {
-        const localProds = JSON.parse(localStorage.getItem('bar_pos_local_products') || '[{"id":"p1","name":"Tusker Lager 500ml","categoryId":"cat-beer","unitType":"Bottle","buyingPrice":180,"sellingPrice":250,"openingStock":50,"stockAdded":0,"currentStock":45,"minStockLevel":10}]');
-        const localMovs = JSON.parse(localStorage.getItem('bar_pos_local_movements') || '[]');
-        setProducts(localProds);
-        if (localProds.length > 0 && !selectedProduct) {
-          setSelectedProduct(localProds[0]);
+      loadProductsFast(tenantId, (remoteProds) => {
+        setProducts(remoteProds);
+        if (!selectedProduct && remoteProds.length > 0) {
+          setSelectedProduct(remoteProds[0]);
         }
-        setMovements(localMovs);
-      } catch (e) {
-        setProducts([]);
-        setMovements([]);
-      }
-    } finally {
+      }).then(prods => {
+        if (prods && prods.length > 0) {
+          setProducts(prods);
+        }
+        setLoading(false);
+      }).catch(() => {
+        setLoading(false);
+      });
+
+      // Fetch stock movements non-blockingly
+      const movRef = collection(db, 'businesses', tenantId, 'stockMovements');
+      getDocs(movRef).then(movSnap => {
+        const movs: StockMovement[] = [];
+        movSnap.forEach(d => {
+          movs.push({ id: d.id, ...d.data() } as StockMovement);
+        });
+        movs.sort((a, b) => b.createdAt - a.createdAt);
+        if (movs.length > 0) {
+          setMovements(movs);
+          try {
+            localStorage.setItem('bar_pos_local_movements', JSON.stringify(movs));
+          } catch (e) {}
+        }
+      }).catch(() => {});
+    } catch (err) {
+      console.warn("Using local fallback stock movements:", err);
       setLoading(false);
     }
   }

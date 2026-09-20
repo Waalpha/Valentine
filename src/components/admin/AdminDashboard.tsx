@@ -7,6 +7,7 @@ import {
   DollarSign, TrendingUp, Receipt, Layers, AlertTriangle, 
   ShoppingBag, Users, CreditCard, ShieldCheck 
 } from 'lucide-react';
+import { getLocalCachedProducts } from '../../lib/offlineManager';
 
 interface AdminDashboardProps {
   user: UserProfile;
@@ -15,7 +16,96 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashboardProps) {
-  const [stats, setStats] = useState({
+  const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Helper to compute local stats
+  const getInitialData = () => {
+    try {
+      const cachedProds = getLocalCachedProducts(tenantId);
+      const localSales: Sale[] = JSON.parse(
+        localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || 
+        localStorage.getItem('bar_pos_local_sales') || 
+        '[]'
+      );
+      const todaySalesList = localSales.filter(s => s.date === todayStr);
+
+      let tSales = 0;
+      let tItems = 0;
+      const payMap: Record<string, number> = { Cash: 0, 'M-Pesa': 0, Card: 0, Other: 0 };
+      const cashMap: Record<string, { sales: number; txns: number }> = {};
+      const prodSalesMap: Record<string, { qty: number; total: number }> = {};
+      const prodMap: Record<string, Product> = {};
+
+      let curStock = 0;
+      let opStock = 0;
+      let addedStock = 0;
+      const lowStock: Product[] = [];
+
+      cachedProds.forEach(p => {
+        prodMap[p.id] = p;
+        curStock += p.currentStock || 0;
+        opStock += p.openingStock || 0;
+        addedStock += p.stockAdded || 0;
+        if ((p.currentStock || 0) <= p.minStockLevel) {
+          lowStock.push(p);
+        }
+      });
+
+      todaySalesList.forEach(sale => {
+        tSales += sale.totalAmount;
+        payMap[sale.paymentMethod] = (payMap[sale.paymentMethod] || 0) + sale.totalAmount;
+        if (!cashMap[sale.cashierName]) {
+          cashMap[sale.cashierName] = { sales: 0, txns: 0 };
+        }
+        cashMap[sale.cashierName].sales += sale.totalAmount;
+        cashMap[sale.cashierName].txns += 1;
+
+        sale.items.forEach(item => {
+          tItems += item.quantity;
+          if (!prodSalesMap[item.productId]) {
+            prodSalesMap[item.productId] = { qty: 0, total: 0 };
+          }
+          prodSalesMap[item.productId].qty += item.quantity;
+          prodSalesMap[item.productId].total += item.totalAmount;
+        });
+      });
+
+      const topProds = Object.entries(prodSalesMap)
+        .map(([id, data]) => ({
+          name: prodMap[id]?.name || 'Unknown',
+          qty: data.qty,
+          total: data.total
+        }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+
+      const expectedClosing = opStock + addedStock - tItems;
+
+      return {
+        stats: {
+          todaySales: tSales,
+          itemsSold: tItems,
+          transactionsCount: todaySalesList.length,
+          currentStock: curStock,
+          expectedClosingStock: expectedClosing,
+          openingStockTotal: opStock,
+          stockAddedTotal: addedStock
+        },
+        topProducts: topProds,
+        lowStockProducts: lowStock,
+        paymentBreakdown: payMap,
+        cashierBreakdown: cashMap,
+        recentSales: todaySalesList.slice(0, 5)
+      };
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const initialData = getInitialData();
+
+  const [stats, setStats] = useState(initialData ? initialData.stats : {
     todaySales: 0,
     itemsSold: 0,
     transactionsCount: 0,
@@ -24,16 +114,16 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
     openingStockTotal: 0,
     stockAddedTotal: 0
   });
-  const [topProducts, setTopProducts] = useState<{ name: string; qty: number; total: number }[]>([]);
-  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
-  const [paymentBreakdown, setPaymentBreakdown] = useState<Record<string, number>>({ Cash: 0, 'M-Pesa': 0, Card: 0, Other: 0 });
-  const [cashierBreakdown, setCashierBreakdown] = useState<Record<string, { sales: number; txns: number }>>({});
-  const [recentSales, setRecentSales] = useState<Sale[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [topProducts, setTopProducts] = useState<{ name: string; qty: number; total: number }[]>(initialData ? initialData.topProducts : []);
+  const [lowStockProducts, setLowStockProducts] = useState<Product[]>(initialData ? initialData.lowStockProducts : []);
+  const [paymentBreakdown, setPaymentBreakdown] = useState<Record<string, number>>(initialData ? initialData.paymentBreakdown : { Cash: 0, 'M-Pesa': 0, Card: 0, Other: 0 });
+  const [cashierBreakdown, setCashierBreakdown] = useState<Record<string, { sales: number; txns: number }>>(initialData ? initialData.cashierBreakdown : {});
+  const [recentSales, setRecentSales] = useState<Sale[]>(initialData ? initialData.recentSales : []);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchAdminDashboardData();
-  }, []);
+  }, [tenantId]);
 
   async function fetchAdminDashboardData() {
     try {

@@ -14,13 +14,29 @@ interface CashierStockViewProps {
 
 export function CashierStockView({ user, businessConfig, onNavigateToOpening, onNavigateToClosing }: CashierStockViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
-  const [products, setProducts] = useState<Product[]>([]);
-  const [soldMap, setSoldMap] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
+  const [soldMap, setSoldMap] = useState<Record<string, number>>(() => {
+    try {
+      const localSales: Sale[] = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
+      const todayStr = new Date().toISOString().split('T')[0];
+      const sMap: Record<string, number> = {};
+      localSales.filter(s => s.date === todayStr).forEach(sale => {
+        sale.items.forEach(item => {
+          sMap[item.productId] = (sMap[item.productId] || 0) + item.quantity;
+        });
+      });
+      return sMap;
+    } catch (e) {
+      return {};
+    }
+  });
+  const [loading, setLoading] = useState<boolean>(() => getLocalCachedProducts(tenantId).length === 0);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 400);
     fetchStockData();
+    return () => clearTimeout(timer);
   }, [tenantId]);
 
   async function fetchStockData() {
@@ -28,6 +44,7 @@ export function CashierStockView({ user, businessConfig, onNavigateToOpening, on
     const cachedProds = getLocalCachedProducts(tenantId);
     if (cachedProds.length > 0) {
       setProducts(cachedProds);
+      setLoading(false);
       // Calculate sold map from local sales
       try {
         const localSales: Sale[] = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');

@@ -56,8 +56,11 @@ export function WaiterOrderScreen({
 
   // Data States
   const [tables, setTables] = useState<RestaurantTable[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId).filter(p => p.status === 'active'));
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const cached = getLocalCachedCategories();
+    return (cached.length > 0 ? cached : []) as Category[];
+  });
 
   // Selection States
   const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(initialTable || null);

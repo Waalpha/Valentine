@@ -32,6 +32,7 @@ import {
   getLocalCachedCategories,
   syncOfflineQueue
 } from '../../lib/offlineManager';
+import { loadProductsFast, loadCategoriesFast } from '../../lib/productService';
 import { subscribeOrders } from '../../lib/orderService';
 
 interface RecordSaleViewProps {
@@ -43,8 +44,8 @@ interface RecordSaleViewProps {
 export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders }: RecordSaleViewProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const currency = businessConfig?.currency || 'KSh';
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>(() => getLocalCachedCategories());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<SaleItem[]>([]);
@@ -69,7 +70,7 @@ export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders 
 
   useEffect(() => {
     fetchProductsAndCategories();
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     const unsub = subscribeOrders(tenantId, (orders) => {
@@ -90,36 +91,22 @@ export function RecordSaleView({ user, businessConfig, onNavigateToWaiterOrders 
       setCategories(cachedCats);
     }
 
-    // 2. Only fetch fresh from Firestore if actively online
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return;
-    }
-
-    try {
-      const prodRef = collection(db, 'businesses', tenantId, 'products');
-      const prodSnap = await getDocs(prodRef);
-      const prods: Product[] = [];
-      prodSnap.forEach(d => {
-        prods.push({ id: d.id, ...d.data() } as Product);
-      });
-      if (prods.length > 0) {
+    // 2. Background non-blocking fresh update
+    loadProductsFast(tenantId, (remoteProds) => {
+      setProducts(remoteProds);
+    }).then(prods => {
+      if (prods && prods.length > 0) {
         setProducts(prods);
-        cacheLocalProducts(prods, tenantId);
       }
+    }).catch(() => {});
 
-      const catRef = collection(db, 'businesses', tenantId, 'categories');
-      const catSnap = await getDocs(catRef);
-      const cats: { id: string; name: string }[] = [];
-      catSnap.forEach(d => {
-        cats.push({ id: d.id, name: d.data().name });
-      });
-      if (cats.length > 0) {
+    loadCategoriesFast(tenantId, (remoteCats) => {
+      setCategories(remoteCats);
+    }).then(cats => {
+      if (cats && cats.length > 0) {
         setCategories(cats);
-        cacheLocalCategories(cats);
       }
-    } catch (err) {
-      console.warn("Using local cached catalog:", err);
-    }
+    }).catch(() => {});
   }
 
   const addToCart = (product: Product, delta: number = 1): boolean => {

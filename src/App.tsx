@@ -30,93 +30,170 @@ import { PrinterSettingsView } from './components/admin/PrinterSettingsView';
 import { TablesView } from './components/admin/TablesView';
 import { WaiterPerformanceView } from './components/admin/WaiterPerformanceView';
 
+const DEFAULT_BIZ_CONFIG: BusinessConfig = {
+  id: DEFAULT_BUSINESS_ID,
+  name: "Club Valentine",
+  phone: "+254 712 345 678",
+  tillNumber: "5849201",
+  location: "Nairobi CBD",
+  address: "Tom Mboya Street, Nairobi",
+  currency: "KSh",
+  openingTime: "10:00",
+  closingTime: "23:59",
+  lowStockThreshold: 10,
+  receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant",
+  receiptFooter: "Thank you! Please drink responsibly."
+};
+
 export default function App() {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [businessConfig, setBusinessConfig] = useState<BusinessConfig | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Try to load cached user synchronously to avoid even 1 frame of blank/loading state
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    try {
+      const localUserStr = localStorage.getItem('bar_pos_local_user');
+      if (localUserStr) {
+        const parsed = JSON.parse(localUserStr);
+        if (parsed && parsed.uid && parsed.role && parsed.uid !== 'local-user-cashier' && parsed.email !== 'cashier@barpos.com') {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  });
+
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(() => {
+    if (userProfile) {
+      return { uid: userProfile.uid, email: userProfile.email } as any;
+    }
+    return null;
+  });
+
+  const [businessConfig, setBusinessConfig] = useState<BusinessConfig>(() => {
+    try {
+      const localBiz = localStorage.getItem('bar_pos_business_config');
+      if (localBiz) return JSON.parse(localBiz);
+    } catch (e) {
+      // ignore
+    }
+    return DEFAULT_BIZ_CONFIG;
+  });
+
+  // If we already have a user in localStorage, loading is false instantly (0ms delay)
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const localUserStr = localStorage.getItem('bar_pos_local_user');
+      if (localUserStr) {
+        const parsed = JSON.parse(localUserStr);
+        if (parsed?.uid && parsed?.role && parsed.uid !== 'local-user-cashier') {
+          return false;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return true;
+  });
 
   // Navigation tab states
   const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
   useEffect(() => {
-    const localUserStr = localStorage.getItem('bar_pos_local_user');
-    if (localUserStr) {
-      try {
-        const localUser = JSON.parse(localUserStr);
-        if (localUser.uid === 'local-user-cashier' || localUser.email === 'cashier@barpos.com') {
-          localStorage.removeItem('bar_pos_local_user');
-        } else {
-          setUserProfile(localUser);
-          setFirebaseUser({ uid: localUser.uid, email: localUser.email } as any);
-          // Fetch business config
-          getDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID)).then(bizSnap => {
-            if (bizSnap.exists()) {
-              setBusinessConfig(bizSnap.data() as BusinessConfig);
-            }
-          }).catch(() => {});
-          setLoading(false);
-          return;
-        }
-      } catch (e) {
-        localStorage.removeItem('bar_pos_local_user');
-      }
-    }
+    // 1. Strict safety watchdog: never allow the loading screen to linger for more than 600ms
+    const safetyWatchdog = setTimeout(() => {
+      setLoading(false);
+    }, 600);
 
-    const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
+    // 2. Fetch business config in background non-blocking
+    getDoc(doc(db, 'businesses', DEFAULT_BUSINESS_ID)).then(bizSnap => {
+      if (bizSnap.exists()) {
+        const data = bizSnap.data() as BusinessConfig;
+        setBusinessConfig(data);
+        try {
+          localStorage.setItem('bar_pos_business_config', JSON.stringify(data));
+        } catch (e) {}
+      }
+    }).catch(() => {});
+
+    // 3. Fast non-blocking Firebase Auth check
+    const unsubscribe = onAuthStateChanged(auth, (fUser) => {
+      clearTimeout(safetyWatchdog);
+
       if (fUser) {
         setFirebaseUser(fUser);
         initializeDatabase(fUser).catch(() => {});
 
-        // Fetch user profile
-        try {
-          const userDocRef = doc(db, 'users', fUser.uid);
-          const userSnap = await getDoc(userDocRef);
-          if (userSnap.exists()) {
-            setUserProfile(userSnap.data() as UserProfile);
-          } else {
-            // Fallback profile
-            const email = fUser.email || '';
-            const role = email.includes('cashier') ? 'cashier' : 'admin';
-            const profile: UserProfile = {
-              uid: fUser.uid,
-              email: email,
-              name: fUser.displayName || (role === 'admin' ? 'Master Admin' : 'Bar Cashier'),
-              role: role,
-              businessId: DEFAULT_BUSINESS_ID,
-              status: 'active',
-              createdAt: new Date().toISOString()
-            };
-            setDoc(userDocRef, profile).catch(() => {});
-            setUserProfile(profile);
-          }
+        // If we already had a userProfile from cache, keep it active and don't block
+        setUserProfile((prev) => {
+          if (prev) return prev;
+          const email = fUser.email || '';
+          const role = email.includes('cashier') ? 'cashier' : email.includes('waiter') ? 'waiter' : 'admin';
+          return {
+            uid: fUser.uid,
+            email: email,
+            name: fUser.displayName || (role === 'admin' ? 'Master Admin' : 'Staff'),
+            role: role,
+            businessId: DEFAULT_BUSINESS_ID,
+            status: 'active',
+            createdAt: new Date().toISOString()
+          };
+        });
 
-          // Fetch business config
-          const bizRef = doc(db, 'businesses', DEFAULT_BUSINESS_ID);
-          const bizSnap = await getDoc(bizRef);
-          if (bizSnap.exists()) {
-            setBusinessConfig(bizSnap.data() as BusinessConfig);
+        // Background update profile without delaying the UI
+        getDoc(doc(db, 'users', fUser.uid)).then((userSnap) => {
+          if (userSnap.exists()) {
+            const freshUser = userSnap.data() as UserProfile;
+            setUserProfile(freshUser);
+            try {
+              localStorage.setItem('bar_pos_local_user', JSON.stringify(freshUser));
+            } catch (e) {}
           }
-        } catch (err) {
-          console.error("Error loading user profile or business config:", err);
-        }
+        }).catch(() => {});
+
+        setLoading(false);
       } else {
+        // Not logged in with Firebase Auth; check if local user exists
+        try {
+          const localStr = localStorage.getItem('bar_pos_local_user');
+          if (localStr) {
+            const local = JSON.parse(localStr);
+            if (local && local.uid && local.uid !== 'local-user-cashier' && local.email !== 'cashier@barpos.com') {
+              setUserProfile(local);
+              setFirebaseUser({ uid: local.uid, email: local.email } as any);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (e) {}
+
         setFirebaseUser(null);
         setUserProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(safetyWatchdog);
+      unsubscribe();
+    };
   }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="text-center space-y-3">
-          <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-sm font-medium text-slate-300">Loading Club Valentine POS System...</p>
+        <div className="text-center space-y-4 max-w-sm px-6">
+          <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div>
+            <h3 className="text-base font-bold text-slate-100">Club Valentine POS</h3>
+            <p className="text-xs text-slate-400 mt-1">Starting up fast & offline-ready...</p>
+          </div>
+          <button
+            onClick={() => setLoading(false)}
+            className="text-xs text-amber-400 hover:text-amber-300 font-medium underline cursor-pointer pt-2"
+          >
+            Skip to Login
+          </button>
         </div>
       </div>
     );

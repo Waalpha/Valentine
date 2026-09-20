@@ -16,6 +16,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { getLocalCachedProducts, cacheLocalProducts, queueOpeningForSync } from '../../lib/offlineManager';
+import { loadProductsFast } from '../../lib/productService';
 
 interface DailyOpeningViewProps {
   user: UserProfile;
@@ -29,13 +30,31 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
   const todayStr = new Date().toISOString().split('T')[0];
   const openingDocId = `${todayStr}-${user.uid}`;
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [openingCounts, setOpeningCounts] = useState<Record<string, number>>({});
-  const [existingOpening, setExistingOpening] = useState<DailyOpening | null>(null);
+  const [products, setProducts] = useState<Product[]>(() => getLocalCachedProducts(tenantId));
+  const [openingCounts, setOpeningCounts] = useState<Record<string, number>>(() => {
+    const cached = getLocalCachedProducts(tenantId);
+    const initial: Record<string, number> = {};
+    cached.forEach(p => {
+      initial[p.id] = p.currentStock !== undefined ? p.currentStock : (p.openingStock || 0);
+    });
+    return initial;
+  });
+  const [existingOpening, setExistingOpening] = useState<DailyOpening | null>(() => {
+    try {
+      const localOpenings: Record<string, DailyOpening> = JSON.parse(
+        localStorage.getItem(`bar_pos_local_openings_${tenantId}`) || 
+        localStorage.getItem('bar_pos_local_openings') || 
+        '{}'
+      );
+      return localOpenings[openingDocId] || null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [isEditingExisting, setIsEditingExisting] = useState(false);
@@ -45,7 +64,6 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
   }, [tenantId]);
 
   async function loadOpeningData() {
-    setLoading(true);
     // 1. Check local storage for existing opening today
     try {
       const localOpenings: Record<string, DailyOpening> = JSON.parse(
@@ -55,6 +73,11 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
       );
       if (localOpenings[openingDocId]) {
         setExistingOpening(localOpenings[openingDocId]);
+        const existingCounts: Record<string, number> = {};
+        localOpenings[openingDocId].items.forEach(item => {
+          existingCounts[item.productId] = item.openingStock;
+        });
+        setOpeningCounts(existingCounts);
       }
     } catch (e) {
       console.warn("Could not read local openings:", e);
@@ -62,51 +85,39 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
 
     // 2. Load products from local cache first for instant render
     const cachedProds = getLocalCachedProducts(tenantId);
-    let loadedProds = cachedProds;
     if (cachedProds.length > 0) {
       setProducts(cachedProds);
       initCountsFromProducts(cachedProds);
     }
 
-    // 3. Fetch from Firestore if online
+    // 3. Fetch from Firestore non-blockingly if online
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       try {
-        // Fetch opening doc
         const openingRef = doc(db, 'businesses', tenantId, 'dailyOpenings', openingDocId);
-        const openingSnap = await getDoc(openingRef);
-        if (openingSnap.exists()) {
-          const data = openingSnap.data() as DailyOpening;
-          setExistingOpening(data);
-          if (data.notes) setNotes(data.notes);
-          const existingCounts: Record<string, number> = {};
-          data.items.forEach(item => {
-            existingCounts[item.productId] = item.openingStock;
-          });
-          setOpeningCounts(existingCounts);
-        }
-
-        // Fetch products
-        const prodRef = collection(db, 'businesses', tenantId, 'products');
-        const prodSnap = await getDocs(prodRef);
-        const remoteProds: Product[] = [];
-        prodSnap.forEach(d => {
-          remoteProds.push({ id: d.id, ...d.data() } as Product);
-        });
-
-        if (remoteProds.length > 0) {
-          loadedProds = remoteProds;
-          setProducts(remoteProds);
-          cacheLocalProducts(remoteProds, tenantId);
-          if (!openingSnap.exists()) {
-            initCountsFromProducts(remoteProds);
+        getDoc(openingRef).then(openingSnap => {
+          if (openingSnap.exists()) {
+            const data = openingSnap.data() as DailyOpening;
+            setExistingOpening(data);
+            if (data.notes) setNotes(data.notes);
+            const existingCounts: Record<string, number> = {};
+            data.items.forEach(item => {
+              existingCounts[item.productId] = item.openingStock;
+            });
+            setOpeningCounts(existingCounts);
           }
-        }
+        }).catch(() => {});
+
+        loadProductsFast(tenantId, (remoteProds) => {
+          setProducts(remoteProds);
+        }).then(remoteProds => {
+          if (remoteProds && remoteProds.length > 0) {
+            setProducts(remoteProds);
+          }
+        }).catch(() => {});
       } catch (err) {
         console.warn("Working offline for opening stock:", err);
       }
     }
-
-    setLoading(false);
   }
 
   function initCountsFromProducts(prods: Product[]) {
