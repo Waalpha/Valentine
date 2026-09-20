@@ -35,16 +35,38 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
   }, []);
 
   async function fetchData() {
+    setLoading(true);
+    let firestoreSales: Sale[] = [];
     try {
       const salesRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'sales');
       const salesSnap = await getDocs(salesRef);
-      const list: Sale[] = [];
       salesSnap.forEach(d => {
-        list.push({ id: d.id, ...d.data() } as Sale);
+        firestoreSales.push({ id: d.id, ...d.data() } as Sale);
       });
-      list.sort((a, b) => b.createdAt - a.createdAt);
-      setSales(list);
+    } catch (err) {
+      console.warn("Could not fetch sales from Firestore, falling back to local storage:", err);
+    }
 
+    let localSales: Sale[] = [];
+    try {
+      localSales = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+    } catch (e) {
+      localSales = [];
+    }
+
+    // Merge and deduplicate by id
+    const map = new Map<string, Sale>();
+    [...localSales, ...firestoreSales].forEach(s => {
+      if (s && s.id) {
+        map.set(s.id, s);
+      }
+    });
+
+    const mergedList = Array.from(map.values());
+    mergedList.sort((a, b) => b.createdAt - a.createdAt);
+    setSales(mergedList);
+
+    try {
       const prodRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'products');
       const prodSnap = await getDocs(prodRef);
       const prods: Product[] = [];
@@ -52,21 +74,76 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
         prods.push({ id: d.id, ...d.data() } as Product);
       });
       setProducts(prods);
-    } catch (err) {
-      console.warn("Using local fallback sales reports due to permission error:", err);
+    } catch (e) {
       try {
-        const localSales = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
         const localProds = JSON.parse(localStorage.getItem('bar_pos_local_products') || '[]');
-        setSales(localSales);
         setProducts(localProds);
-      } catch (e) {
-        setSales([]);
+      } catch (err) {
         setProducts([]);
       }
     } finally {
       setLoading(false);
     }
   }
+
+  // Generate sample sales for testing/demo if list is empty
+  const handleGenerateSampleSales = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+    const sampleSales: Sale[] = [
+      {
+        id: 'sale-demo-01',
+        businessId: DEFAULT_BUSINESS_ID,
+        items: [
+          { productId: 'prod-tusker', productName: 'Tusker Lager (500ml)', quantity: 3, unitPrice: 250, totalAmount: 750, barcode: '6161101234567' },
+          { productId: 'prod-nyama', productName: 'Nyama Choma Portion', quantity: 1, unitPrice: 600, totalAmount: 600 }
+        ],
+        totalAmount: 1350,
+        paymentMethod: 'M-Pesa',
+        amountTendered: 1350,
+        change: 0,
+        referenceCode: 'QBC84920K',
+        tillNumber: '5849201',
+        cashierId: user.uid,
+        cashierName: user.name || 'Atieno',
+        businessDayId: todayStr,
+        date: todayStr,
+        time: '14:30:22',
+        createdAt: now - 3600000
+      },
+      {
+        id: 'sale-demo-02',
+        businessId: DEFAULT_BUSINESS_ID,
+        items: [
+          { productId: 'prod-whitecap', productName: 'White Cap Lager', quantity: 4, unitPrice: 260, totalAmount: 1040, barcode: '6161101234581' }
+        ],
+        totalAmount: 1040,
+        paymentMethod: 'Cash',
+        amountTendered: 1500,
+        change: 460,
+        tillNumber: '5849201',
+        cashierId: user.uid,
+        cashierName: user.name || 'Mercy',
+        businessDayId: todayStr,
+        date: todayStr,
+        time: '16:15:05',
+        createdAt: now - 1800000
+      }
+    ];
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+      const combined = [...sampleSales, ...existing];
+      localStorage.setItem('bar_pos_local_sales', JSON.stringify(combined));
+      setSales(combined);
+      setSuccess('Successfully generated demo sales report entries!');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (e) {
+      console.error('Failed to generate sample sales:', e);
+    }
+  };
+
+  const [success, setSuccess] = useState('');
 
   const todayStr = new Date().toISOString().split('T')[0];
   const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
@@ -158,6 +235,12 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
         </div>
       </div>
 
+      {success && (
+        <div className="flex items-center space-x-3 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200">
+          <span>{success}</span>
+        </div>
+      )}
+
       {clearSuccess && (
         <div className="flex items-center space-x-3 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200">
           <span>{clearSuccess}</span>
@@ -242,10 +325,21 @@ export function SalesReportsView({ user, businessConfig }: SalesReportsViewProps
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading sales reports...</div>
       ) : filteredSales.length === 0 ? (
-        <div className="bg-white rounded-3xl p-12 text-center border border-gray-200 shadow-xs">
-          <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+        <div className="bg-white rounded-3xl p-12 text-center border border-gray-200 shadow-xs space-y-4">
+          <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-1" />
           <h3 className="text-lg font-bold text-gray-800">No Sales Found</h3>
-          <p className="text-sm text-gray-500 mt-1">Try adjusting your filters or date range.</p>
+          <p className="text-sm text-gray-500 max-w-md mx-auto">
+            {sales.length === 0 ? 'No sales have been recorded yet. Click below to generate sample sales or record a sale from the POS.' : 'Try adjusting your date or filter options.'}
+          </p>
+          {sales.length === 0 && (
+            <button
+              onClick={handleGenerateSampleSales}
+              className="inline-flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>Generate Sample Sales</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-3xl border border-gray-200 shadow-xs overflow-hidden">

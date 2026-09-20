@@ -1257,20 +1257,8 @@ export function Login({ onLoginSuccess }: LoginProps) {
       </main>
 
       {/* FOOTER BAR */}
-      <footer className={`relative z-10 w-full px-4 sm:px-8 py-3 border-t ${themeStyles.footerBorder} ${themeStyles.footerBg} flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs ${themeStyles.footerText} shrink-0 transition-colors`}>
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-amber-500 shrink-0" />
-          <span>
-            Club Paxx POS • Powered by <strong className="text-amber-500 font-extrabold tracking-wide">Davetech Solutions</strong>
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-[11px]">
-          <span>⚡ Touchscreen & Offline Engine</span>
-          <span>•</span>
-          <span className="font-semibold">Davetech Solutions POS Core</span>
-          <span>•</span>
-          <span>© {new Date().getFullYear()}</span>
-        </div>
+      <footer className={`relative z-10 w-full px-4 sm:px-8 py-3 border-t ${themeStyles.footerBorder} ${themeStyles.footerBg} text-center text-xs ${themeStyles.footerText} shrink-0 transition-colors`}>
+        <span>Copyright © {new Date().getFullYear()} Davetech Solutions</span>
       </footer>
 
     </div>

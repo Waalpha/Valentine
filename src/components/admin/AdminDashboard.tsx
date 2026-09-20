@@ -150,10 +150,29 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
         }
       });
 
-      // 2. Fetch today's sales
+      // 2. Fetch today's sales from Firestore and merge with local sales
       const salesRef = collection(db, 'businesses', tenantId, 'sales');
-      const salesQuery = query(salesRef, where('date', '==', todayStr));
-      const salesSnap = await getDocs(salesQuery);
+      const salesSnap = await getDocs(salesRef);
+      const firestoreSales: Sale[] = [];
+      salesSnap.forEach(d => {
+        firestoreSales.push({ id: d.id, ...d.data() } as Sale);
+      });
+
+      let localSales: Sale[] = [];
+      try {
+        localSales = JSON.parse(localStorage.getItem('bar_pos_local_sales') || '[]');
+      } catch (e) {
+        localSales = [];
+      }
+
+      const map = new Map<string, Sale>();
+      [...localSales, ...firestoreSales].forEach(s => {
+        if (s && s.id) {
+          map.set(s.id, s);
+        }
+      });
+
+      const allMergedSales = Array.from(map.values());
 
       let tSales = 0;
       let tItems = 0;
@@ -162,26 +181,27 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
       const prodSalesMap: Record<string, { qty: number; total: number }> = {};
       const allSales: Sale[] = [];
 
-      salesSnap.forEach(d => {
-        const sale = d.data() as Sale;
-        allSales.push(sale);
-        tSales += sale.totalAmount;
-        payMap[sale.paymentMethod] = (payMap[sale.paymentMethod] || 0) + sale.totalAmount;
+      allMergedSales.forEach(sale => {
+        if (sale.date === todayStr) {
+          allSales.push(sale);
+          tSales += sale.totalAmount;
+          payMap[sale.paymentMethod] = (payMap[sale.paymentMethod] || 0) + sale.totalAmount;
 
-        if (!cashMap[sale.cashierName]) {
-          cashMap[sale.cashierName] = { sales: 0, txns: 0 };
-        }
-        cashMap[sale.cashierName].sales += sale.totalAmount;
-        cashMap[sale.cashierName].txns += 1;
-
-        sale.items.forEach(item => {
-          tItems += item.quantity;
-          if (!prodSalesMap[item.productId]) {
-            prodSalesMap[item.productId] = { qty: 0, total: 0 };
+          if (!cashMap[sale.cashierName]) {
+            cashMap[sale.cashierName] = { sales: 0, txns: 0 };
           }
-          prodSalesMap[item.productId].qty += item.quantity;
-          prodSalesMap[item.productId].total += item.totalAmount;
-        });
+          cashMap[sale.cashierName].sales += sale.totalAmount;
+          cashMap[sale.cashierName].txns += 1;
+
+          sale.items.forEach(item => {
+            tItems += item.quantity;
+            if (!prodSalesMap[item.productId]) {
+              prodSalesMap[item.productId] = { qty: 0, total: 0 };
+            }
+            prodSalesMap[item.productId].qty += item.quantity;
+            prodSalesMap[item.productId].total += item.totalAmount;
+          });
+        }
       });
 
       // Sort recent sales
@@ -203,7 +223,7 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
       setStats({
         todaySales: tSales,
         itemsSold: tItems,
-        transactionsCount: salesSnap.size,
+        transactionsCount: allSales.length,
         currentStock: curStock,
         expectedClosingStock: expectedClosing,
         openingStockTotal: opStock,
