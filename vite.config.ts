@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'Club Valentine Bar POS & Stock Management',
-          short_name: 'ClubVal POS',
-          description: 'Club Valentine Bar POS and Stock Management System with full offline operation.',
+          name: 'Club Paxx Bar POS & Stock Management',
+          short_name: 'Club Paxx POS',
+          description: 'Club Paxx Bar POS and Stock Management System with full offline operation.',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',

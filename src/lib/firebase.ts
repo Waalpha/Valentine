@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, getFirestore, setLogLevel } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  getFirestore,
+  setLogLevel
+} from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
 // Suppress verbose SDK connection retries to prevent noisy console logs
@@ -26,14 +32,16 @@ const dbId = (firebaseConfigData as any).firestoreDatabaseId || '(default)';
 let firestoreInstance;
 try {
   firestoreInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({}),
-    experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    }),
+    experimentalAutoDetectLongPolling: true,
     ignoreUndefinedProperties: true,
   }, dbId);
 } catch (e) {
   try {
     firestoreInstance = initializeFirestore(app, {
-      experimentalForceLongPolling: true,
+      experimentalAutoDetectLongPolling: true,
       ignoreUndefinedProperties: true,
     }, dbId);
   } catch (e2) {

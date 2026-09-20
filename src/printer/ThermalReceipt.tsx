@@ -13,7 +13,7 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
   const settings = propsFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
 
   const currency = businessConfig?.currency || 'KSh';
-  const businessName = businessConfig?.name || 'Club Valentine';
+  const businessName = businessConfig?.name || 'Club Paxx';
   const address = businessConfig?.address || 'Nairobi CBD';
   const phone = businessConfig?.phone || '+254 712 345 678';
   const tillNumber = sale.tillNumber || businessConfig?.tillNumber || '5849201';
@@ -201,9 +201,20 @@ export function ThermalReceipt({ sale, businessConfig, fontSettings: propsFontSe
       </div>
 
       {/* Footer Section */}
-      <div className={`border-t border-dashed border-gray-400 pt-2.5 mt-2 text-center ${fontSizes.footer} text-gray-700 space-y-0.5`}>
+      <div className={`border-t border-dashed border-gray-400 pt-2.5 mt-2 text-center ${fontSizes.footer} text-gray-700 space-y-1`}>
         <p className="font-semibold">{footer}</p>
-        <p className="text-[8px] tracking-wider text-gray-500">
+        
+        {/* Davetech Solutions Receipt Brand Credit */}
+        <div className="pt-1.5 border-t border-dotted border-gray-300">
+          <p className="font-black text-[9.5px] uppercase tracking-wider text-black">
+            Powered by Davetech Solutions
+          </p>
+          <p className="text-[7.5px] text-gray-500 tracking-tight">
+            Point of Sale & Enterprise Systems
+          </p>
+        </div>
+
+        <p className="text-[7.5px] tracking-wider text-gray-400 pt-0.5">
           {settings.fontStyle.toUpperCase()} • {settings.fontSize.toUpperCase()}
           {settings.bold ? ' • BOLD' : ''}
           {settings.italic ? ' • ITALIC' : ''}

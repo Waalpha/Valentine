@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 import { subscribeOrders } from '../../lib/orderService';
+import { AppFooter } from '../common/AppFooter';
 
 interface AdminLayoutProps {
   user: UserProfile;
@@ -30,9 +31,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
     return () => unsub();
   }, [user.businessId]);
 
-  const handleSignOut = async () => {
-    await logAuditAction(user.uid, user.name, 'LOGOUT', `${user.role === 'manager' ? 'Manager' : 'Admin'} logged out`);
-    await auth.signOut();
+  const handleSignOut = () => {
     onLogout();
   };
 
@@ -68,7 +67,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
               <Wine className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-white tracking-tight">{businessConfig?.name || 'Club Valentine'}</h1>
+              <h1 className="text-base font-bold text-white tracking-tight">{businessConfig?.name || 'Club Paxx'}</h1>
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
                 {user.role === 'manager' ? 'Manager Control' : 'Admin Control'}
               </span>
@@ -106,33 +105,57 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
         </div>
 
         {/* User Footer Profile & Logout */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex items-center justify-between">
-          <div className="truncate pr-2">
-            <p className="text-sm font-bold text-white truncate">{user.name}</p>
-            <p className="text-xs text-slate-400 truncate">{user.email}</p>
+        <div className="p-4 border-t border-slate-800 bg-slate-950/40">
+          <div className="flex items-center justify-between mb-2">
+            <div className="truncate pr-2">
+              <p className="text-sm font-bold text-white truncate">{user.name}</p>
+              <p className="text-xs text-slate-400 truncate">{user.email}</p>
+            </div>
+            <button
+              id="admin-sidebar-signout-btn"
+              onClick={handleSignOut}
+              title="Sign Out"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all shrink-0 cursor-pointer border border-slate-700/60 active:scale-95"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-xs font-bold">Logout</span>
+            </button>
           </div>
-          <button
-            onClick={handleSignOut}
-            title="Sign Out"
-            className="p-2.5 rounded-xl bg-slate-800 text-red-400 hover:bg-slate-700 hover:text-red-300 transition-all shrink-0 cursor-pointer"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+          <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-400 flex items-center justify-between">
+            <span>Powered by</span>
+            <span className="font-bold text-amber-400">Davetech Solutions</span>
+          </div>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-4 sm:p-8 overflow-y-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between bg-white p-3 px-4 rounded-2xl border border-gray-200 shadow-xs">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-500">System Mode</span>
-              <span className="text-xs font-bold text-gray-800">• POS Cloud & Offline Sync</span>
+      <main className="flex-1 flex flex-col min-h-screen overflow-y-auto">
+        <div className="p-4 sm:p-8 flex-1">
+          <div className="max-w-7xl mx-auto space-y-6">
+            <div className="flex items-center justify-between bg-white p-3 px-4 rounded-2xl border border-gray-200 shadow-xs">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-500">System Mode</span>
+                <span className="text-xs font-bold text-gray-800">• POS Cloud & Offline Sync</span>
+              </div>
+              <div className="flex items-center space-x-3">
+                <OfflineStatusIndicator />
+                <button
+                  id="admin-top-signout-btn"
+                  onClick={handleSignOut}
+                  className="flex items-center space-x-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title="Sign Out of Admin"
+                >
+                  <LogOut className="w-3.5 h-3.5 text-red-500" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
             </div>
-            <OfflineStatusIndicator />
+            {children}
           </div>
-          {children}
         </div>
+
+        {/* Global Davetech Solutions Footer */}
+        <AppFooter theme="light" />
       </main>
     </div>
   );

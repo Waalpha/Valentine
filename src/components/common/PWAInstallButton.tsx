@@ -45,7 +45,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               <Download className="w-5 h-5 animate-bounce" />
             </div>
             <div>
-              <p className="text-xs font-black tracking-wide uppercase">Install Club Valentine POS</p>
+              <p className="text-xs font-black tracking-wide uppercase">Install Club Paxx POS</p>
               <p className="text-[11px] font-medium text-slate-900 leading-tight">
                 Use offline anytime, fast fullscreen access, and works without internet!
               </p>
@@ -84,7 +84,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           onClick={handleInstall}
           type="button"
           className={`flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-xl text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer ${className}`}
-          title="Install Club Valentine POS App on this phone, tablet or PC"
+          title="Install Club Paxx POS App on this phone, tablet or PC"
         >
           <Download className="w-3.5 h-3.5" />
           <span>{isIOS ? 'Install iOS' : 'Install App'}</span>
@@ -104,7 +104,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         className={`flex items-center justify-center space-x-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black px-4 py-2 rounded-xl text-xs shadow-md transition-all active:scale-95 cursor-pointer ${className}`}
       >
         <Download className="w-4 h-4" />
-        <span>{isIOS ? 'Install on iPhone / iPad' : 'Install ClubVal POS App'}</span>
+        <span>{isIOS ? 'Install on iPhone / iPad' : 'Install Club Paxx POS App'}</span>
       </button>
 
       {showInstructions && renderGuideModal()}
@@ -164,14 +164,14 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 </div>
                 <div>
                   <p className="font-bold text-slate-900">Tap "Add" in top-right</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Club Valentine POS icon will be pinned to your home screen.</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Club Paxx POS icon will be pinned to your home screen.</p>
                 </div>
               </div>
             </div>
           ) : (
             <div className="mt-4 space-y-3 text-xs text-slate-600">
               <p className="text-slate-700">
-                To install <strong>Club Valentine POS</strong> as a standalone application on your Chrome, Edge, or Android device:
+                To install <strong>Club Paxx POS</strong> as a standalone application on your Chrome, Edge, or Android device:
               </p>
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 space-y-2">
                 <div className="flex items-center gap-2 text-slate-800 font-bold">

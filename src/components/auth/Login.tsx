@@ -200,7 +200,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-mary-waiter',
     name: 'Mary',
-    email: 'mary@Valentine.com',
+    email: 'mary@clubpaxx.com',
     role: 'waiter',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -210,7 +210,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-john-waiter',
     name: 'John',
-    email: 'john@Valentine.com',
+    email: 'john@clubpaxx.com',
     role: 'waiter',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -220,7 +220,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-atieno-cashier',
     name: 'Atieno',
-    email: 'atieno@Valentine.com',
+    email: 'atieno@clubpaxx.com',
     role: 'cashier',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -240,7 +240,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-manager',
     name: 'Bar Manager',
-    email: 'manager@Valentine.com',
+    email: 'manager@clubpaxx.com',
     role: 'manager',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -250,7 +250,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-mercy-cashier',
     name: 'Mercy',
-    email: 'mercy@Valentine.com',
+    email: 'mercy@clubpaxx.com',
     role: 'cashier',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -260,7 +260,7 @@ const DEFAULT_STAFF: UserProfile[] = [
   {
     uid: 'user-cecilia-admin',
     name: 'Cecilia Wangech',
-    email: 'owner@Valentine.com',
+    email: 'owner@clubpaxx.com',
     role: 'admin',
     businessId: DEFAULT_BUSINESS_ID,
     status: 'active',
@@ -688,7 +688,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
           <div>
             <div className="flex items-center gap-1.5 sm:gap-2">
               <h1 className={`text-sm sm:text-base font-black tracking-tight ${themeStyles.textPrimary} uppercase`}>
-                Club Valentine
+                Club Paxx
               </h1>
               <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md border ${themeStyles.badgeClass}`}>
                 POS #1
@@ -1211,7 +1211,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="staff@clubvalentine.com"
+                    placeholder="staff@clubpaxx.com"
                     className={`w-full rounded-xl border ${themeStyles.displayBorder} ${themeStyles.displayBg} pl-10 pr-4 py-2.5 text-sm ${themeStyles.textPrimary} placeholder-slate-400 focus:outline-none`}
                   />
                 </div>
@@ -1258,15 +1258,19 @@ export function Login({ onLoginSuccess }: LoginProps) {
       </main>
 
       {/* FOOTER BAR */}
-      <footer className={`relative z-10 w-full px-4 sm:px-8 py-2 sm:py-2.5 border-t ${themeStyles.footerBorder} ${themeStyles.footerBg} flex flex-wrap items-center justify-between gap-2 text-xs ${themeStyles.footerText} shrink-0 transition-colors`}>
-        <div className="flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-amber-600" />
-          <span>Club Valentine POS • Standalone Bar Terminal</span>
+      <footer className={`relative z-10 w-full px-4 sm:px-8 py-3 border-t ${themeStyles.footerBorder} ${themeStyles.footerBg} flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs ${themeStyles.footerText} shrink-0 transition-colors`}>
+        <div className="flex items-center gap-2">
+          <Shield className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>
+            Club Paxx POS • Powered by <strong className="text-amber-500 font-extrabold tracking-wide">Davetech Solutions</strong>
+          </span>
         </div>
-        <div className="flex items-center gap-3 text-[10px] sm:text-[11px]">
-          <span>⚡ Touchscreen & Hardware Numpad Ready</span>
-          <span className="hidden sm:inline">•</span>
-          <span className="hidden sm:inline">Offline-First Engine</span>
+        <div className="flex items-center gap-3 text-[11px]">
+          <span>⚡ Touchscreen & Offline Engine</span>
+          <span>•</span>
+          <span className="font-semibold">Davetech Solutions POS Core</span>
+          <span>•</span>
+          <span>© {new Date().getFullYear()}</span>
         </div>
       </footer>
 

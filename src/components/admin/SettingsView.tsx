@@ -15,7 +15,7 @@ interface SettingsViewProps {
 export function SettingsView({ user, businessConfig, onConfigUpdated }: SettingsViewProps) {
   const [formData, setFormData] = useState<BusinessConfig>({
     id: DEFAULT_BUSINESS_ID,
-    name: 'Club Valentine',
+    name: 'Club Paxx',
     phone: '+254 712 345 678',
     tillNumber: '5849201',
     location: 'Nairobi CBD',
@@ -24,8 +24,8 @@ export function SettingsView({ user, businessConfig, onConfigUpdated }: Settings
     openingTime: '10:00',
     closingTime: '23:59',
     lowStockThreshold: 10,
-    receiptHeader: 'CLUB VALENTINE',
-    receiptFooter: 'Thank you! Please drink responsibly.',
+    receiptHeader: 'CLUB PAXX',
+    receiptFooter: 'Thank you! Please drink responsibly.\nPowered by Davetech Solutions',
     allowNegativeStock: true
   });
   const [success, setSuccess] = useState('');

@@ -136,7 +136,7 @@ export class EscPosFormatter {
     const formatter = new EscPosFormatter();
     const settings = customFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
     const currency = businessConfig?.currency || 'KSh';
-    const businessName = businessConfig?.name || 'CLUB VALENTINE';
+    const businessName = businessConfig?.name || 'CLUB PAXX';
     const address = businessConfig?.address || 'Nairobi CBD';
     const phone = businessConfig?.phone || '+254 712 345 678';
     const tillNumber = sale.tillNumber || businessConfig?.tillNumber || '5849201';
@@ -217,6 +217,7 @@ export class EscPosFormatter {
     formatter.setAlignment('center');
     formatter.addLine(`RECEIPT #${sale.id.slice(-8).toUpperCase()}`);
     formatter.addLine(footer);
+    formatter.addLine('Powered by Davetech Solutions');
     formatter.addLine(`Printed: ${new Date().toLocaleTimeString()}`);
 
     formatter.cut();
@@ -230,7 +231,7 @@ export class EscPosFormatter {
   ): Uint8Array {
     const formatter = new EscPosFormatter();
     const settings = customFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
-    const businessName = businessConfig?.name || 'CLUB VALENTINE';
+    const businessName = businessConfig?.name || 'CLUB PAXX';
 
     // Apply font settings
     formatter.applyFontSettings(settings);
@@ -279,6 +280,7 @@ export class EscPosFormatter {
     formatter.addSeparator('=');
     formatter.setAlignment('center');
     formatter.addLine('*** BAR TICKET - NOT A BILL ***');
+    formatter.addLine('Powered by Davetech Solutions');
     formatter.addLine(`Printed: ${new Date().toLocaleTimeString()}`);
     formatter.cut();
     return formatter.getData();
@@ -290,7 +292,7 @@ export class EscPosFormatter {
   ): Uint8Array {
     const formatter = new EscPosFormatter();
     const settings = customFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
-    const businessName = businessConfig?.name || 'CLUB VALENTINE';
+    const businessName = businessConfig?.name || 'CLUB PAXX';
 
     // Apply typography configuration
     formatter.applyFontSettings(settings);
@@ -316,6 +318,7 @@ export class EscPosFormatter {
     formatter.addSeparator('=');
     formatter.setAlignment('center');
     formatter.addLine('58mm Thermal Receipt OK');
+    formatter.addLine('Powered by Davetech Solutions');
     formatter.cut();
     return formatter.getData();
   }

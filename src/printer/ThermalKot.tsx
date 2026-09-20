@@ -10,7 +10,7 @@ interface ThermalKotProps {
 
 export function ThermalKot({ order, businessConfig, fontSettings: propsFontSettings }: ThermalKotProps) {
   const settings = propsFontSettings || businessConfig?.printerFontSettings || getStoredFontSettings();
-  const businessName = businessConfig?.name || 'Club Valentine';
+  const businessName = businessConfig?.name || 'Club Paxx';
 
   // Resolve font style class
   const getFontStyleClass = () => {
@@ -109,10 +109,13 @@ export function ThermalKot({ order, businessConfig, fontSettings: propsFontSetti
       )}
 
       {/* Footer */}
-      <div className="border-t-2 border-dashed border-gray-400 pt-1.5 mt-2 text-center text-[8.5px] text-gray-600 space-y-0.5">
+      <div className="border-t-2 border-dashed border-gray-400 pt-1.5 mt-2 text-center text-[8.5px] text-gray-600 space-y-1">
         <p className="font-bold uppercase tracking-wider text-black">*** BAR TICKET — NOT A BILL ***</p>
         <p>Sent to Cashier for Payment</p>
-        <p className="text-[8px] text-gray-400">Printed: {new Date().toLocaleTimeString()}</p>
+        <p className="font-bold text-[9px] uppercase tracking-wide text-black pt-0.5">
+          Powered by Davetech Solutions
+        </p>
+        <p className="text-[7.5px] text-gray-400">Printed: {new Date().toLocaleTimeString()}</p>
       </div>
     </div>
   );

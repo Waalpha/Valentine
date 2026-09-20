@@ -121,6 +121,13 @@ export function KotModal({
             Done
           </button>
         </div>
+
+        {/* Modal Footer Branding */}
+        <div className="pt-3 text-center">
+          <p className="text-[11px] text-gray-400 font-medium">
+            Bar Ticket Engine Powered by <strong className="text-gray-700 font-bold">Davetech Solutions</strong>
+          </p>
+        </div>
       </div>
     </div>
   );

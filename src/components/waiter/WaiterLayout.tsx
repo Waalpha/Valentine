@@ -17,6 +17,7 @@ import { WaiterOrderScreen } from './WaiterOrderScreen';
 import { WaiterOrdersList } from './WaiterOrdersList';
 import { TablesView } from '../admin/TablesView';
 import { subscribeOrders } from '../../lib/orderService';
+import { AppFooter } from '../common/AppFooter';
 
 type WaiterTab = 'new_order' | 'pending' | 'tables' | 'completed';
 
@@ -88,9 +89,7 @@ export function WaiterLayout({
     }
   };
 
-  const handleSignOut = async () => {
-    await logAuditAction(user.uid, user.name, 'LOGOUT', 'Waiter logged out');
-    await auth.signOut();
+  const handleSignOut = () => {
     onLogout();
   };
 
@@ -117,7 +116,7 @@ export function WaiterLayout({
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                <span>{businessConfig?.name || 'Club Valentine'}</span>
+                <span>{businessConfig?.name || 'Club Paxx'}</span>
                 <span className="text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
                   Waiter Terminal
                 </span>
@@ -152,8 +151,10 @@ export function WaiterLayout({
 
             {/* Logout */}
             <button
+              id="waiter-signout-btn"
               onClick={handleSignOut}
-              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700 transition-all cursor-pointer hover:text-red-400 active:scale-95"
+              title="Sign Out"
+              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-red-950/40 hover:text-red-300 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700 hover:border-red-500/40 transition-all cursor-pointer active:scale-95"
             >
               <LogOut className="w-4 h-4 text-red-400" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -248,6 +249,9 @@ export function WaiterLayout({
           </>
         )}
       </main>
+
+      {/* Davetech Solutions Footer */}
+      <AppFooter theme="light" />
     </div>
   );
 }

@@ -65,7 +65,11 @@ export async function logAuditAction(
 
   try {
     const auditColRef = collection(db, 'businesses', DEFAULT_BUSINESS_ID, 'auditLogs');
-    await addDoc(auditColRef, logEntry);
+    // Ensure audit log never hangs if network/Firestore is slow or disconnected
+    await Promise.race([
+      addDoc(auditColRef, logEntry),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Audit log timeout')), 1200))
+    ]);
   } catch (err) {
     // Gracefully catch and store locally if permission denied or offline
     try {

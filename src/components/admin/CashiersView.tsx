@@ -348,7 +348,7 @@ export function CashiersView({ user, businessConfig }: CashiersViewProps) {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. cashier@valentine.com"
+                  placeholder="e.g. cashier@clubpaxx.com"
                   className="w-full rounded-xl border border-gray-300 p-3 text-sm focus:border-amber-600 focus:outline-none"
                 />
               </div>

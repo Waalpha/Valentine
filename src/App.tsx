@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { auth, db, DEFAULT_BUSINESS_ID } from './lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { UserProfile, BusinessConfig } from './types';
 import { initializeDatabase } from './lib/dbSeeder';
+import { logAuditAction } from './lib/utils';
 
 import { Login } from './components/auth/Login';
 import { CashierLayout } from './components/cashier/CashierLayout';
@@ -32,7 +33,7 @@ import { WaiterPerformanceView } from './components/admin/WaiterPerformanceView'
 
 const DEFAULT_BIZ_CONFIG: BusinessConfig = {
   id: DEFAULT_BUSINESS_ID,
-  name: "Club Valentine",
+  name: "Club Paxx",
   phone: "+254 712 345 678",
   tillNumber: "5849201",
   location: "Nairobi CBD",
@@ -41,8 +42,8 @@ const DEFAULT_BIZ_CONFIG: BusinessConfig = {
   openingTime: "10:00",
   closingTime: "23:59",
   lowStockThreshold: 10,
-  receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant",
-  receiptFooter: "Thank you! Please drink responsibly."
+  receiptHeader: "CLUB PAXX\nOfficial Bar & Restaurant",
+  receiptFooter: "Thank you! Please drink responsibly.\nPowered by Davetech Solutions"
 };
 
 export default function App() {
@@ -99,6 +100,48 @@ export default function App() {
   const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
+  const isLoggingOutRef = useRef<boolean>(false);
+
+  // Centralized, bulletproof logout handler
+  const handleLogout = useCallback(() => {
+    isLoggingOutRef.current = true;
+
+    // 1. Immediately wipe all local user credentials so onAuthStateChanged/page reloads never auto-restore
+    try {
+      localStorage.removeItem('bar_pos_local_user');
+      sessionStorage.removeItem('bar_pos_local_user');
+    } catch (e) {
+      console.warn('Failed clearing user from storage:', e);
+    }
+
+    // 2. Fire audit log in background (non-blocking, never awaits so it never delays UI)
+    const currentUser = userProfile;
+    if (currentUser) {
+      logAuditAction(
+        currentUser.uid,
+        currentUser.name,
+        'LOGOUT',
+        `${currentUser.name} (${currentUser.role}) logged out`
+      ).catch(() => {});
+    }
+
+    // 3. Immediately reset state to render Login screen synchronously
+    setFirebaseUser(null);
+    setUserProfile(null);
+    setCashierTab('dashboard');
+    setAdminTab('dashboard');
+
+    // 4. Trigger Firebase auth signOut safely
+    auth.signOut().catch((err) => {
+      console.warn('Firebase signOut non-critical error:', err);
+    }).finally(() => {
+      // Release logout lock after debounce
+      setTimeout(() => {
+        isLoggingOutRef.current = false;
+      }, 500);
+    });
+  }, [userProfile]);
+
   useEffect(() => {
     // 1. Strict safety watchdog: never allow the loading screen to linger for more than 600ms
     const safetyWatchdog = setTimeout(() => {
@@ -119,6 +162,14 @@ export default function App() {
     // 3. Fast non-blocking Firebase Auth check
     const unsubscribe = onAuthStateChanged(auth, (fUser) => {
       clearTimeout(safetyWatchdog);
+
+      // If user is intentionally logging out, do not restore state
+      if (isLoggingOutRef.current) {
+        setFirebaseUser(null);
+        setUserProfile(null);
+        setLoading(false);
+        return;
+      }
 
       if (fUser) {
         setFirebaseUser(fUser);
@@ -153,6 +204,13 @@ export default function App() {
 
         setLoading(false);
       } else {
+        if (isLoggingOutRef.current) {
+          setFirebaseUser(null);
+          setUserProfile(null);
+          setLoading(false);
+          return;
+        }
+
         // Not logged in with Firebase Auth; check if local user exists
         try {
           const localStr = localStorage.getItem('bar_pos_local_user');
@@ -185,7 +243,7 @@ export default function App() {
         <div className="text-center space-y-4 max-w-sm px-6">
           <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <div>
-            <h3 className="text-base font-bold text-slate-100">Club Valentine POS</h3>
+            <h3 className="text-base font-bold text-slate-100">Club Paxx POS</h3>
             <p className="text-xs text-slate-400 mt-1">Starting up fast & offline-ready...</p>
           </div>
           <button
@@ -223,12 +281,7 @@ export default function App() {
       <WaiterLayout
         user={userProfile}
         businessConfig={businessConfig}
-        onLogout={() => {
-          localStorage.removeItem('bar_pos_local_user');
-          auth.signOut();
-          setFirebaseUser(null);
-          setUserProfile(null);
-        }}
+        onLogout={handleLogout}
       />
     );
   }
@@ -241,12 +294,7 @@ export default function App() {
         businessConfig={businessConfig}
         activeTab={cashierTab}
         setActiveTab={setCashierTab}
-        onLogout={() => {
-          localStorage.removeItem('bar_pos_local_user');
-          auth.signOut();
-          setFirebaseUser(null);
-          setUserProfile(null);
-        }}
+        onLogout={handleLogout}
       >
         {cashierTab === 'dashboard' && (
           <CashierDashboard
@@ -306,12 +354,7 @@ export default function App() {
       businessConfig={businessConfig}
       activeTab={adminTab}
       setActiveTab={setAdminTab}
-      onLogout={() => {
-        localStorage.removeItem('bar_pos_local_user');
-        auth.signOut();
-        setFirebaseUser(null);
-        setUserProfile(null);
-      }}
+      onLogout={handleLogout}
     >
       {adminTab === 'dashboard' && (
         <AdminDashboard

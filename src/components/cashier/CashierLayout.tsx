@@ -5,6 +5,7 @@ import { logAuditAction, formatCurrency } from '../../lib/utils';
 import { LayoutDashboard, ShoppingCart, Receipt, Package, CalendarCheck, LogOut, Wine, Maximize2, Minimize2, UtensilsCrossed, Sunrise } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 import { subscribeOrders } from '../../lib/orderService';
+import { AppFooter } from '../common/AppFooter';
 
 interface CashierLayoutProps {
   user: UserProfile;
@@ -52,9 +53,7 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
     }
   };
 
-  const handleSignOut = async () => {
-    await logAuditAction(user.uid, user.name, 'LOGOUT', 'Cashier logged out');
-    await auth.signOut();
+  const handleSignOut = () => {
     onLogout();
   };
 
@@ -85,7 +84,7 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-white">
-                {businessConfig?.name || 'Club Valentine'} <span className="text-xs font-normal text-amber-400 ml-1 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Cashier POS</span>
+                {businessConfig?.name || 'Club Paxx'} <span className="text-xs font-normal text-amber-400 ml-1 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Cashier POS</span>
               </h1>
               <p className="text-xs text-slate-400">Cashier: <strong className="text-slate-200">{user.name}</strong></p>
             </div>
@@ -120,8 +119,10 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
             </button>
 
             <button
+              id="cashier-signout-btn"
               onClick={handleSignOut}
-              className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-sm font-medium border border-slate-700 transition-all active:scale-95"
+              title="Sign Out"
+              className="flex items-center space-x-2 bg-slate-800 hover:bg-red-950/40 hover:text-red-300 text-slate-200 px-3.5 py-2 rounded-xl text-sm font-medium border border-slate-700 hover:border-red-500/40 transition-all active:scale-95 cursor-pointer"
             >
               <LogOut className="w-4 h-4 text-red-400" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -167,6 +168,9 @@ export function CashierLayout({ user, businessConfig, activeTab, setActiveTab, o
       <main className="flex-1 w-full p-3 sm:p-5 lg:p-6">
         {children}
       </main>
+
+      {/* Davetech Solutions Footer */}
+      <AppFooter theme="light" />
     </div>
   );
 }

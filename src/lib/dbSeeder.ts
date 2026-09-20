@@ -10,7 +10,7 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
     if (!bizSnap.exists()) {
       const defaultBiz: BusinessConfig = {
         id: DEFAULT_BUSINESS_ID,
-        name: "Club Valentine",
+        name: "Club Paxx",
         phone: "+254 712 345 678",
         tillNumber: "5849201",
         location: "Nairobi CBD",
@@ -19,16 +19,16 @@ export async function initializeDatabase(currentUser?: { uid: string; email?: st
         openingTime: "10:00",
         closingTime: "23:59",
         lowStockThreshold: 10,
-        receiptHeader: "CLUB VALENTINE\nOfficial Bar & Restaurant",
-        receiptFooter: "Thank you! Please drink responsibly."
+        receiptHeader: "CLUB PAXX\nOfficial Bar & Restaurant",
+        receiptFooter: "Thank you! Please drink responsibly.\nPowered by Davetech Solutions"
       };
       await setDoc(bizRef, defaultBiz);
     } else {
       const currentData = bizSnap.data() as BusinessConfig;
       const updates: Partial<BusinessConfig> = {};
-      if (currentData.name?.includes('Savanna')) {
-        updates.name = "Club Valentine";
-        updates.receiptHeader = "CLUB VALENTINE\nOfficial Bar & Restaurant";
+      if (currentData.name?.includes('Savanna') || currentData.name?.includes('Valentine')) {
+        updates.name = "Club Paxx";
+        updates.receiptHeader = "CLUB PAXX\nOfficial Bar & Restaurant";
       }
       if (!currentData.tillNumber) {
         updates.tillNumber = "5849201";

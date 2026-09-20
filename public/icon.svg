@@ -24,6 +24,6 @@
     <polygon points="220,105 223,114 232,117 223,120 220,129 217,120 208,117 217,114" fill="#fbbf24"/>
   </g>
   <!-- Text Label -->
-  <text x="256" y="425" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="34" fill="#f8fafc" letter-spacing="3">CLUB VALENTINE</text>
+  <text x="256" y="425" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="34" fill="#f8fafc" letter-spacing="3">CLUB PAXX</text>
   <text x="256" y="460" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="20" fill="#f59e0b" letter-spacing="4">BAR POS &amp; STOCK</text>
 </svg>
