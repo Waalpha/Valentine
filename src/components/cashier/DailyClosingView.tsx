@@ -16,7 +16,7 @@ import {
   Search,
   CheckCircle
 } from 'lucide-react';
-import { getLocalCachedProducts } from '../../lib/offlineManager';
+import { getLocalCachedProducts, queueClosingForSync } from '../../lib/offlineManager';
 
 interface DailyClosingViewProps {
   user: UserProfile;
@@ -355,14 +355,18 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
         console.warn("Could not save to local closings:", e);
       }
 
-      // 2. Save to Firestore if online
+      // 2. Save to Firestore if online; queue for auto-sync if offline or on network error
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
           const closingRef = doc(db, 'businesses', tenantId, 'dailyClosings', closingDocId);
           await setDoc(closingRef, dailyClosing);
         } catch (dbErr) {
-          console.warn("Online write deferred for closing, saved locally:", dbErr);
+          console.warn("Online write deferred for closing, queued for auto-sync:", dbErr);
+          queueClosingForSync(dailyClosing, tenantId);
         }
+      } else {
+        console.log("Device offline. Queued shift closing for automatic background sync when connection restores.");
+        queueClosingForSync(dailyClosing, tenantId);
       }
 
       // 3. Audit log

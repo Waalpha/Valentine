@@ -15,7 +15,7 @@ import {
   Sparkles,
   ArrowRight
 } from 'lucide-react';
-import { getLocalCachedProducts, cacheLocalProducts } from '../../lib/offlineManager';
+import { getLocalCachedProducts, cacheLocalProducts, queueOpeningForSync } from '../../lib/offlineManager';
 
 interface DailyOpeningViewProps {
   user: UserProfile;
@@ -233,7 +233,7 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
       setProducts(updatedProducts);
       cacheLocalProducts(updatedProducts, tenantId);
 
-      // 3. Sync to Firestore if online
+      // 3. Sync to Firestore if online; queue for auto-sync if offline or on network error
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
           // Save opening record
@@ -252,8 +252,12 @@ export function DailyOpeningView({ user, businessConfig, onNavigateToPOS, onComp
           });
           await batch.commit();
         } catch (dbErr) {
-          console.warn("Could not commit batch to Firestore, preserved locally:", dbErr);
+          console.warn("Could not commit batch to Firestore, queued for auto-sync:", dbErr);
+          queueOpeningForSync(dailyOpeningRecord, updatedProducts, tenantId);
         }
+      } else {
+        console.log("Device offline. Queued shift opening for automatic background sync when connection restores.");
+        queueOpeningForSync(dailyOpeningRecord, updatedProducts, tenantId);
       }
 
       // 4. Log audit action

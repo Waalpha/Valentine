@@ -24,7 +24,7 @@ import {
   BusinessConfig,
   PaymentMethod
 } from '../types';
-import { saveSaleLocallyAndQueue } from './offlineManager';
+import { saveSaleLocallyAndQueue, queueOrderForSync } from './offlineManager';
 import { logAuditAction, cleanForFirestore } from './utils';
 
 const DEFAULT_TABLES: Omit<RestaurantTable, 'businessId'>[] = [
@@ -331,14 +331,20 @@ export async function submitWaiterOrder(
   // 3. Update table status
   await updateTableStatus(data.table.id, 'order_pending', orderId, data.waiter.uid, data.waiter.name, tenantId);
 
-  // 4. Persist to Firestore with undefined sanitization
-  try {
-    const cleanedOrder = cleanForFirestore(newOrder);
-    const orderRef = doc(db, 'businesses', tenantId, 'orders', orderId);
-    await setDoc(orderRef, cleanedOrder);
-    console.log(`[OrderService] Order #${orderNumber} (${orderId}) successfully stored in Firestore at businesses/${tenantId}/orders`);
-  } catch (err: any) {
-    console.error('[OrderService] Warning: Failed to write order to Firestore, order preserved in local cache:', err);
+  // 4. Persist to Firestore with undefined sanitization; queue for auto-sync if offline or on network error
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    try {
+      const cleanedOrder = cleanForFirestore(newOrder);
+      const orderRef = doc(db, 'businesses', tenantId, 'orders', orderId);
+      await setDoc(orderRef, cleanedOrder);
+      console.log(`[OrderService] Order #${orderNumber} (${orderId}) successfully stored in Firestore at businesses/${tenantId}/orders`);
+    } catch (err: any) {
+      console.error('[OrderService] Warning: Failed to write order to Firestore, queueing for auto-sync:', err);
+      queueOrderForSync(newOrder, tenantId);
+    }
+  } else {
+    console.log(`[OrderService] Device offline. Order #${orderNumber} queued for auto-sync when online.`);
+    queueOrderForSync(newOrder, tenantId);
   }
 
   // 5. Audit log

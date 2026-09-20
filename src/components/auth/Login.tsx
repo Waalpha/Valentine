@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { logAuditAction } from '../../lib/utils';
+import { PWAInstallButton } from '../common/PWAInstallButton';
 
 interface LoginProps {
   onLoginSuccess?: (user: UserProfile) => void;
@@ -799,6 +800,9 @@ export function Login({ onLoginSuccess }: LoginProps) {
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
+          {/* Install App Button */}
+          <PWAInstallButton variant="compact" />
+
           {/* Mode Switcher */}
           {loginMode === 'keypad' ? (
             <button
@@ -831,6 +835,11 @@ export function Login({ onLoginSuccess }: LoginProps) {
           )}
         </div>
       </header>
+
+      {/* PWA Install Banner */}
+      <div className="w-full px-3 sm:px-6 pt-2 shrink-0">
+        <PWAInstallButton variant="banner" />
+      </div>
 
       {/* MOBILE SEGMENTED CONTROL: KEYPAD vs STAFF (Keeps keypad 100% visible on phones) */}
       {loginMode === 'keypad' && (
