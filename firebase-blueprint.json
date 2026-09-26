@@ -45,6 +45,29 @@
       },
       "required": ["id", "items", "totalAmount", "paymentMethod", "cashierId"]
     },
+    "Expense": {
+      "title": "Expense",
+      "description": "Cashier on duty operational expense or petty cash outlay with mandatory explanation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "reason": { "type": "string" },
+        "paymentSource": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "voucherNumber": { "type": "string" },
+        "cashierId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "businessDayId": { "type": "string" },
+        "businessId": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "amount", "category", "reason", "paymentSource", "cashierId", "date"]
+    },
     "RestaurantOrder": {
       "title": "RestaurantOrder",
       "description": "Order taken by waiter or cashier for a table or spot",
@@ -99,6 +122,10 @@
     "/businesses/{businessId}/sales/{saleId}": {
       "schema": "Sale",
       "description": "Point of sale completed receipts"
+    },
+    "/businesses/{businessId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Cashier on duty operational outlays and petty cash vouchers with reason explanations"
     },
     "/businesses/{businessId}/orders/{orderId}": {
       "schema": "RestaurantOrder",

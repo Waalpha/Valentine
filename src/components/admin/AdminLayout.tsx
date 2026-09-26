@@ -4,7 +4,7 @@ import { auth, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { logAuditAction } from '../../lib/utils';
 import { 
   LayoutDashboard, ShoppingBag, Package, Layers, Receipt, CalendarCheck, 
-  Users, ShieldAlert, Settings, LogOut, Wine, Printer, UtensilsCrossed, Award, Grid
+  Users, ShieldAlert, Settings, LogOut, Wine, Printer, UtensilsCrossed, Award, Grid, Wallet
 } from 'lucide-react';
 import { OfflineStatusIndicator } from '../common/OfflineStatusIndicator';
 import { subscribeOrders } from '../../lib/orderService';
@@ -49,6 +49,7 @@ export function AdminLayout({ user, businessConfig, activeTab, setActiveTab, onL
     { id: 'products', label: 'Products', icon: Package },
     { id: 'stock', label: 'Stock & Additions', icon: Layers },
     { id: 'sales', label: 'Sales Reports', icon: Receipt },
+    { id: 'expenses', label: 'Expenses & Petty Cash', icon: Wallet },
     { id: 'closings', label: 'Daily Closings', icon: CalendarCheck },
     { id: 'cashiers', label: 'Staff Accounts', icon: Users },
     { id: 'audit', label: 'Audit Logs', icon: ShieldAlert },

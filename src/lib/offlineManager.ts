@@ -1,4 +1,4 @@
-import { Sale, Product, BusinessConfig, DailyOpening, DailyClosing, RestaurantOrder } from '../types';
+import { Sale, Product, BusinessConfig, DailyOpening, DailyClosing, RestaurantOrder, ExpenseRecord } from '../types';
 import { db, DEFAULT_BUSINESS_ID } from './firebase';
 import { doc, setDoc, updateDoc, increment, getDoc, collection, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { logAuditAction, cleanForFirestore } from './utils';
@@ -9,6 +9,7 @@ export interface OfflineStatus {
   pendingOpeningsCount: number;
   pendingClosingsCount: number;
   pendingOrdersCount: number;
+  pendingExpensesCount: number;
   pendingTotalCount: number;
   isSyncing: boolean;
   lastSyncTime: string | null;
@@ -31,6 +32,7 @@ const OFFLINE_SALES_KEY = 'bar_pos_offline_sales_queue';
 const OFFLINE_OPENINGS_KEY = 'bar_pos_offline_openings_queue';
 const OFFLINE_CLOSINGS_KEY = 'bar_pos_offline_closings_queue';
 const OFFLINE_ORDERS_KEY = 'bar_pos_offline_orders_queue';
+const OFFLINE_EXPENSES_KEY = 'bar_pos_offline_expenses_queue';
 const OFFLINE_AUDIT_KEY = 'bar_pos_offline_audit_queue';
 const LAST_SYNC_TIME_KEY = 'bar_pos_last_sync_time';
 const LAST_SYNC_RESULT_KEY = 'bar_pos_last_sync_result';
@@ -51,6 +53,12 @@ export interface PendingClosingSync {
 
 export interface PendingOrderSync {
   order: RestaurantOrder;
+  tenantId: string;
+  queuedAt: number;
+}
+
+export interface PendingExpenseSync {
+  expense: ExpenseRecord;
   tenantId: string;
   queuedAt: number;
 }
@@ -206,7 +214,47 @@ export function queueOrderForSync(order: RestaurantOrder, tenantId?: string) {
   }
 }
 
-// 5. Audit Queue
+// 5. Expenses Queue
+export function getStoredPendingExpenses(): PendingExpenseSync[] {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_EXPENSES_KEY) || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+export function savePendingExpenses(queue: PendingExpenseSync[]) {
+  try {
+    localStorage.setItem(OFFLINE_EXPENSES_KEY, JSON.stringify(queue));
+  } catch (e) {
+    console.warn('Failed to write offline expenses queue:', e);
+  }
+  notifyListeners();
+}
+
+export function queueExpenseForSync(expense: ExpenseRecord, tenantId?: string) {
+  const activeTenantId = tenantId || expense.businessId || DEFAULT_BUSINESS_ID;
+  const queue = getStoredPendingExpenses();
+  const existingIdx = queue.findIndex(x => x.expense.id === expense.id);
+  const entry: PendingExpenseSync = {
+    expense,
+    tenantId: activeTenantId,
+    queuedAt: Date.now()
+  };
+
+  if (existingIdx >= 0) {
+    queue[existingIdx] = entry;
+  } else {
+    queue.push(entry);
+  }
+  savePendingExpenses(queue);
+
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    scheduleAutoSync(500);
+  }
+}
+
+// 6. Audit Queue
 export function getStoredPendingAudits(): PendingAuditSync[] {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_AUDIT_KEY) || '[]');
@@ -241,6 +289,7 @@ export function getOfflineStatus(): OfflineStatus {
   const pendingOpenings = getStoredPendingOpenings();
   const pendingClosings = getStoredPendingClosings();
   const pendingOrders = getStoredPendingOrders();
+  const pendingExpenses = getStoredPendingExpenses();
   const lastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY);
 
   let lastSyncResult = null;
@@ -255,7 +304,8 @@ export function getOfflineStatus(): OfflineStatus {
     pendingSales.length +
     pendingOpenings.length +
     pendingClosings.length +
-    pendingOrders.length;
+    pendingOrders.length +
+    pendingExpenses.length;
 
   return {
     isOnline,
@@ -263,6 +313,7 @@ export function getOfflineStatus(): OfflineStatus {
     pendingOpeningsCount: pendingOpenings.length,
     pendingClosingsCount: pendingClosings.length,
     pendingOrdersCount: pendingOrders.length,
+    pendingExpensesCount: pendingExpenses.length,
     pendingTotalCount,
     isSyncing,
     lastSyncTime,
@@ -629,6 +680,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
   syncedOpenings: number;
   syncedClosings: number;
   syncedOrders: number;
+  syncedExpenses: number;
   syncedAudits: number;
   totalSynced: number;
   errors: number;
@@ -639,6 +691,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
       syncedOpenings: 0,
       syncedClosings: 0,
       syncedOrders: 0,
+      syncedExpenses: 0,
       syncedAudits: 0,
       totalSynced: 0,
       errors: 0
@@ -651,6 +704,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
       syncedOpenings: 0,
       syncedClosings: 0,
       syncedOrders: 0,
+      syncedExpenses: 0,
       syncedAudits: 0,
       totalSynced: 0,
       errors: 0
@@ -661,6 +715,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
   const openingsQueue = getStoredPendingOpenings();
   const closingsQueue = getStoredPendingClosings();
   const ordersQueue = getStoredPendingOrders();
+  const expensesQueue = getStoredPendingExpenses();
   const auditsQueue = getStoredPendingAudits();
 
   const totalPending =
@@ -668,6 +723,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
     openingsQueue.length +
     closingsQueue.length +
     ordersQueue.length +
+    expensesQueue.length +
     auditsQueue.length;
 
   if (totalPending === 0) {
@@ -676,6 +732,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
       syncedOpenings: 0,
       syncedClosings: 0,
       syncedOrders: 0,
+      syncedExpenses: 0,
       syncedAudits: 0,
       totalSynced: 0,
       errors: 0
@@ -689,6 +746,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
   let syncedOpenings = 0;
   let syncedClosings = 0;
   let syncedOrders = 0;
+  let syncedExpenses = 0;
   let syncedAudits = 0;
   let errors = 0;
 
@@ -804,7 +862,22 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
   }
   savePendingOrders(remainingOrders);
 
-  // 5. Synchronize Pending Audit Logs
+  // 5. Synchronize Pending Cashier Expenses
+  const remainingExpenses: PendingExpenseSync[] = [];
+  for (const item of expensesQueue) {
+    try {
+      const expenseRef = doc(db, 'businesses', item.tenantId, 'expenses', item.expense.id);
+      await setDoc(expenseRef, cleanForFirestore(item.expense), { merge: true });
+      syncedExpenses++;
+    } catch (err) {
+      console.error(`Failed to sync expense ${item.expense.id}:`, err);
+      errors++;
+      remainingExpenses.push(item);
+    }
+  }
+  savePendingExpenses(remainingExpenses);
+
+  // 6. Synchronize Pending Audit Logs
   const remainingAudits: PendingAuditSync[] = [];
   for (const item of auditsQueue) {
     try {
@@ -818,7 +891,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
   }
   savePendingAudits(remainingAudits);
 
-  const totalSynced = syncedSales + syncedOpenings + syncedClosings + syncedOrders + syncedAudits;
+  const totalSynced = syncedSales + syncedOpenings + syncedClosings + syncedOrders + syncedExpenses + syncedAudits;
 
   if (totalSynced > 0) {
     const timeStr = new Date().toLocaleTimeString();
@@ -830,6 +903,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
     if (syncedOpenings > 0) parts.push(`${syncedOpenings} opening`);
     if (syncedClosings > 0) parts.push(`${syncedClosings} closing`);
     if (syncedOrders > 0) parts.push(`${syncedOrders} order${syncedOrders > 1 ? 's' : ''}`);
+    if (syncedExpenses > 0) parts.push(`${syncedExpenses} expense${syncedExpenses > 1 ? 's' : ''}`);
     const summaryText = parts.join(', ');
 
     const result = {
@@ -866,6 +940,7 @@ export async function syncAllOfflineData(tenantId?: string): Promise<{
     syncedOpenings,
     syncedClosings,
     syncedOrders,
+    syncedExpenses,
     syncedAudits,
     totalSynced,
     errors

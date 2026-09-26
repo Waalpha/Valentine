@@ -203,10 +203,16 @@ export function ClosingsView({ user, businessConfig }: ClosingsViewProps) {
                   </div>
 
                   {/* Payment Breakdown & Cash Reconciliation */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-2xl">
                     <div>
                       <p className="text-[11px] font-semibold text-slate-500 uppercase">Cash Expected</p>
                       <p className="text-sm font-bold text-slate-900">{formatCurrency(closing.paymentTotals.Cash, currency)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-rose-600 uppercase">Shift Expenses</p>
+                      <p className="text-sm font-bold text-rose-600">
+                        {closing.totalExpenses ? `-${formatCurrency(closing.totalExpenses, currency)}` : `${currency} 0`}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[11px] font-semibold text-slate-500 uppercase">M-Pesa</p>
@@ -220,14 +226,35 @@ export function ClosingsView({ user, businessConfig }: ClosingsViewProps) {
                       <p className="text-[11px] font-semibold text-slate-500 uppercase">Cash Declared in Drawer</p>
                       <p className="text-sm font-bold text-slate-900">
                         {closing.cashierDeclaredCash !== undefined ? formatCurrency(closing.cashierDeclaredCash, currency) : 'N/A'}
-                        {closing.cashVariance !== undefined && closing.cashVariance !== 0 && (
-                          <span className={`block text-[11px] font-bold ${closing.cashVariance < 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                            Diff: {formatCurrency(closing.cashVariance, currency)}
+                        {closing.cashVariance !== undefined && (
+                          <span className={`block text-[11px] font-bold ${closing.cashVariance === 0 ? 'text-emerald-600' : closing.cashVariance < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                            {closing.cashVariance === 0 ? 'Balanced' : `Diff: ${closing.cashVariance > 0 ? '+' : ''}${formatCurrency(closing.cashVariance, currency)}`}
                           </span>
                         )}
                       </p>
                     </div>
                   </div>
+
+                  {/* Expenses List if recorded */}
+                  {closing.expensesList && closing.expensesList.length > 0 && (
+                    <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-3 space-y-1.5 text-xs">
+                      <div className="font-bold text-rose-900">
+                        Recorded Shift Outlays ({closing.expensesList.length}):
+                      </div>
+                      <div className="divide-y divide-rose-100/60 max-h-32 overflow-y-auto">
+                        {closing.expensesList.map((exp, eIdx) => (
+                          <div key={eIdx} className="py-1.5 flex items-center justify-between text-slate-700">
+                            <div>
+                              <span className="font-bold text-slate-900 mr-2">{exp.category}</span>
+                              <span>What for: <strong>{exp.reason}</strong></span>
+                              <span className="ml-2 text-[10px] text-slate-400">({exp.paymentSource})</span>
+                            </div>
+                            <span className="font-bold text-rose-600">-{formatCurrency(exp.amount, currency)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {closing.notes && (
                     <p className="text-xs text-slate-700 italic bg-amber-50/70 p-3 rounded-xl border border-amber-200/70">

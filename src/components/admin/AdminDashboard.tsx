@@ -5,9 +5,10 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
 import { 
   DollarSign, TrendingUp, Receipt, Layers, AlertTriangle, 
-  ShoppingBag, Users, CreditCard, ShieldCheck 
+  ShoppingBag, Users, CreditCard, ShieldCheck, Wallet 
 } from 'lucide-react';
 import { getLocalCachedProducts } from '../../lib/offlineManager';
+import { subscribeExpenses, getLocalExpenses } from '../../lib/expenseService';
 
 interface AdminDashboardProps {
   user: UserProfile;
@@ -119,11 +120,26 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
   const [paymentBreakdown, setPaymentBreakdown] = useState<Record<string, number>>(initialData ? initialData.paymentBreakdown : { Cash: 0, 'M-Pesa': 0, Card: 0, Other: 0 });
   const [cashierBreakdown, setCashierBreakdown] = useState<Record<string, { sales: number; txns: number }>>(initialData ? initialData.cashierBreakdown : {});
   const [recentSales, setRecentSales] = useState<Sale[]>(initialData ? initialData.recentSales : []);
+  const [todayExpensesTotal, setTodayExpensesTotal] = useState<number>(() => {
+    try {
+      return getLocalExpenses(tenantId).filter(e => e.date === todayStr).reduce((sum, e) => sum + e.amount, 0);
+    } catch (e) {
+      return 0;
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchAdminDashboardData();
   }, [tenantId]);
+
+  useEffect(() => {
+    const unsub = subscribeExpenses(tenantId, (all) => {
+      const todaySum = all.filter(e => e.date === todayStr).reduce((sum, e) => sum + e.amount, 0);
+      setTodayExpensesTotal(todaySum);
+    });
+    return () => unsub();
+  }, [tenantId, todayStr]);
 
   async function fetchAdminDashboardData() {
     try {
@@ -300,42 +316,64 @@ export function AdminDashboard({ user, businessConfig, onNavigate }: AdminDashbo
         </div>
         <div className="flex items-center space-x-3 flex-wrap gap-2">
           {onNavigate && (
-            <button
-              onClick={() => onNavigate('pos')}
-              className="inline-flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Open POS (Sell)</span>
-            </button>
+            <>
+              <button
+                onClick={() => onNavigate('pos')}
+                className="inline-flex items-center space-x-2 rounded-2xl bg-amber-600 hover:bg-amber-700 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Open POS (Sell)</span>
+              </button>
+              <button
+                onClick={() => onNavigate('expenses')}
+                className="inline-flex items-center space-x-2 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 shadow-xs transition-all active:scale-95 cursor-pointer"
+              >
+                <Wallet className="w-4 h-4 text-rose-600" />
+                <span>Shift Expenses</span>
+              </button>
+            </>
           )}
           <div className="inline-flex items-center space-x-2 bg-amber-50 text-amber-800 px-4 py-2 rounded-xl text-xs font-bold border border-amber-200">
             <ShieldCheck className="w-4 h-4 text-amber-600" />
-            <span>Active Business Day: {new Date().toISOString().split('T')[0]}</span>
+            <span>Active Day: {new Date().toISOString().split('T')[0]}</span>
           </div>
         </div>
       </div>
 
-      {/* Top 5 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Top KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Today's Sales</p>
           <p className="text-xl font-black text-amber-700 mt-1">{formatCurrency(stats.todaySales, currency)}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{stats.transactionsCount} transactions</p>
+        </div>
+        <div 
+          onClick={() => onNavigate?.('expenses')}
+          className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs cursor-pointer hover:border-amber-400 transition-all group"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Today's Expenses</p>
+          <p className="text-xl font-black text-rose-600 mt-1">-{formatCurrency(todayExpensesTotal, currency)}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5 group-hover:text-amber-600 transition-colors">Audit outlays →</p>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Net Sales</p>
+          <p className="text-xl font-black text-emerald-700 mt-1">{formatCurrency(Math.max(0, stats.todaySales - todayExpensesTotal), currency)}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Sales - Expenses</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Items Sold</p>
           <p className="text-xl font-extrabold text-gray-900 mt-1">{stats.itemsSold.toLocaleString()}</p>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Transactions</p>
-          <p className="text-xl font-extrabold text-gray-900 mt-1">{stats.transactionsCount.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Bottles & drinks</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Current Stock</p>
           <p className="text-xl font-extrabold text-gray-900 mt-1">{stats.currentStock.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">In catalog</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Expected Closing</p>
-          <p className="text-xl font-extrabold text-emerald-700 mt-1">{stats.expectedClosingStock.toLocaleString()}</p>
+          <p className="text-xl font-extrabold text-slate-800 mt-1">{stats.expectedClosingStock.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Target bottles</p>
         </div>
       </div>
 

@@ -1,26 +1,56 @@
 import React, { useEffect, useState } from 'react';
-import { UserProfile, BusinessConfig, Sale, Product, DailyOpening } from '../../types';
+import { UserProfile, BusinessConfig, Sale, Product, DailyOpening, ExpenseRecord } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { formatCurrency } from '../../lib/utils';
-import { ShoppingCart, Receipt, Package, CalendarCheck, TrendingUp, DollarSign, Layers, UtensilsCrossed, Sunrise, CheckCircle2, ArrowRight } from 'lucide-react';
+import { 
+  ShoppingCart, Receipt, Package, CalendarCheck, TrendingUp, DollarSign, 
+  Layers, UtensilsCrossed, Sunrise, CheckCircle2, ArrowRight, Wallet, Plus 
+} from 'lucide-react';
 import { subscribeOrders } from '../../lib/orderService';
 import { getLocalCachedProducts } from '../../lib/offlineManager';
+import { subscribeExpenses, getLocalExpenses } from '../../lib/expenseService';
+import { RecordExpenseModal } from '../common/RecordExpenseModal';
 
 interface CashierDashboardProps {
   user: UserProfile;
   businessConfig?: BusinessConfig | null;
-  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales') => void;
+  setActiveTab: (tab: 'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales' | 'expenses') => void;
 }
 
 export function CashierDashboard({ user, businessConfig, setActiveTab }: CashierDashboardProps) {
   const tenantId = user.businessId || DEFAULT_BUSINESS_ID;
   const todayStr = new Date().toISOString().split('T')[0];
+  const currency = businessConfig?.currency || 'KSh';
 
   const [todaySalesTotal, setTodaySalesTotal] = useState<number>(() => {
     try {
       const localSales = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
       return localSales.filter((s: Sale) => s.date === todayStr).reduce((acc: number, s: Sale) => acc + s.totalAmount, 0);
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [todayCashSalesTotal, setTodayCashSalesTotal] = useState<number>(() => {
+    try {
+      const localSales = JSON.parse(localStorage.getItem(`bar_pos_local_sales_${tenantId}`) || localStorage.getItem('bar_pos_local_sales') || '[]');
+      return localSales.filter((s: Sale) => s.date === todayStr && s.paymentMethod === 'Cash').reduce((acc: number, s: Sale) => acc + s.totalAmount, 0);
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [todayExpensesTotal, setTodayExpensesTotal] = useState<number>(() => {
+    try {
+      const localExpenses = getLocalExpenses(tenantId);
+      return localExpenses.filter(e => e.date === todayStr).reduce((sum, e) => sum + e.amount, 0);
+    } catch (e) {
+      return 0;
+    }
+  });
+  const [todayDrawerExpensesTotal, setTodayDrawerExpensesTotal] = useState<number>(() => {
+    try {
+      const localExpenses = getLocalExpenses(tenantId);
+      return localExpenses.filter(e => e.date === todayStr && e.paymentSource === 'Cash Drawer').reduce((sum, e) => sum + e.amount, 0);
     } catch (e) {
       return 0;
     }
@@ -48,6 +78,7 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
     return cached.reduce((sum, p) => sum + (p.currentStock !== undefined ? p.currentStock : (p.openingStock || 0)), 0);
   });
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [openingStockRecord, setOpeningStockRecord] = useState<DailyOpening | null>(() => {
     try {
       const localOpenings = JSON.parse(
@@ -61,6 +92,18 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
     }
   });
   const [loading, setLoading] = useState(false);
+
+  // Subscribe to live expenses
+  useEffect(() => {
+    const unsub = subscribeExpenses(tenantId, (all) => {
+      const todayList = all.filter(e => e.date === todayStr);
+      const totalExp = todayList.reduce((sum, e) => sum + e.amount, 0);
+      const drawerExp = todayList.filter(e => e.paymentSource === 'Cash Drawer').reduce((sum, e) => sum + e.amount, 0);
+      setTodayExpensesTotal(totalExp);
+      setTodayDrawerExpensesTotal(drawerExp);
+    });
+    return () => unsub();
+  }, [tenantId, todayStr]);
 
   useEffect(() => {
     const unsub = subscribeOrders(tenantId, (orders) => {
@@ -163,8 +206,6 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
     fetchStats();
   }, [tenantId, user.uid]);
 
-  const currency = businessConfig?.currency || 'KSh';
-
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
@@ -231,49 +272,78 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {/* Today's Sales */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Today's Sales</p>
             <p className="text-2xl font-extrabold text-gray-900 mt-1">
               {loading ? '...' : formatCurrency(todaySalesTotal, currency)}
             </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{todayTransactionsCount} transactions</p>
           </div>
           <div className="rounded-xl bg-emerald-50 p-3 text-emerald-600">
             <DollarSign className="w-6 h-6" />
           </div>
         </div>
 
+        {/* Today's Expenses */}
+        <div 
+          onClick={() => setActiveTab('expenses')}
+          className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all group"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-rose-600 flex items-center space-x-1">
+              <span>Today's Expenses</span>
+            </p>
+            <p className="text-2xl font-extrabold text-rose-600 mt-1">
+              -{loading ? '...' : formatCurrency(todayExpensesTotal, currency)}
+            </p>
+            <p className="text-[11px] text-gray-400 mt-0.5 group-hover:text-amber-600 transition-colors">
+              Click to view outlays →
+            </p>
+          </div>
+          <div className="rounded-xl bg-rose-50 p-3 text-rose-600 group-hover:scale-105 transition-transform">
+            <Wallet className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Expected Net Cash Drawer */}
+        <div className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Net Drawer Cash</p>
+            <p className="text-2xl font-extrabold text-emerald-700 mt-1">
+              {loading ? '...' : formatCurrency(Math.max(0, todayCashSalesTotal - todayDrawerExpensesTotal), currency)}
+            </p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Cash Sales - Cash Outlays</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700">
+            <DollarSign className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Items Sold */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Items Sold</p>
             <p className="text-2xl font-extrabold text-gray-900 mt-1">
               {loading ? '...' : todayItemsSold.toLocaleString()}
             </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Bottles & glasses</p>
           </div>
           <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
             <TrendingUp className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Transactions</p>
-            <p className="text-2xl font-extrabold text-gray-900 mt-1">
-              {loading ? '...' : todayTransactionsCount.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-xl bg-amber-50 p-3 text-amber-600">
-            <Receipt className="w-6 h-6" />
-          </div>
-        </div>
-
+        {/* Current Stock */}
         <div className="rounded-2xl bg-white p-5 shadow-xs border border-gray-100 flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Current Stock</p>
             <p className="text-2xl font-extrabold text-gray-900 mt-1">
               {loading ? '...' : availableStockTotal.toLocaleString()} <span className="text-xs font-normal text-gray-400">units</span>
             </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Across catalog</p>
           </div>
           <div className="rounded-xl bg-purple-50 p-3 text-purple-600">
             <Layers className="w-6 h-6" />
@@ -283,8 +353,17 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
 
       {/* Main Cashier Actions Grid */}
       <div className="pt-2">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Quick POS Actions</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-900">Quick POS Actions</h3>
+          <button
+            onClick={() => setIsExpenseModalOpen(true)}
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 text-xs font-bold border border-amber-500/30 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4 text-amber-600" />
+            <span>Record Cashier Expense</span>
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
           <button
             onClick={() => setActiveTab('waiter_orders')}
             className="relative flex flex-col items-center justify-center p-5 rounded-3xl bg-amber-600 text-white shadow-lg shadow-amber-600/30 hover:bg-amber-700 active:scale-95 transition-all group text-center cursor-pointer"
@@ -312,6 +391,17 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
             </div>
             <span className="text-base font-bold">DIRECT SALE</span>
             <span className="text-[11px] text-slate-300 mt-0.5">Counter walk-in POS</span>
+          </button>
+
+          <button
+            onClick={() => setIsExpenseModalOpen(true)}
+            className="flex flex-col items-center justify-center p-5 rounded-3xl bg-rose-50 border-2 border-rose-300/80 text-rose-950 shadow-xs hover:border-rose-500 hover:shadow-md active:scale-95 transition-all group text-center cursor-pointer"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-200/80 flex items-center justify-center mb-2.5 text-rose-800 group-hover:scale-110 transition-transform">
+              <Wallet className="w-6 h-6" />
+            </div>
+            <span className="text-base font-bold">RECORD EXPENSE</span>
+            <span className="text-[11px] text-rose-800 mt-0.5">Petty cash & outlays</span>
           </button>
 
           <button
@@ -359,6 +449,14 @@ export function CashierDashboard({ user, businessConfig, setActiveTab }: Cashier
           </button>
         </div>
       </div>
+
+      {/* Record Expense Modal */}
+      <RecordExpenseModal
+        isOpen={isExpenseModalOpen}
+        onClose={() => setIsExpenseModalOpen(false)}
+        user={user}
+        businessConfig={businessConfig}
+      />
     </div>
   );
 }

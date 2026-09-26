@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UserProfile, BusinessConfig, Product, Sale, DailyClosing, ClosingItem } from '../../types';
+import { UserProfile, BusinessConfig, Product, Sale, DailyClosing, ClosingItem, ExpenseRecord } from '../../types';
 import { db, DEFAULT_BUSINESS_ID } from '../../lib/firebase';
 import { collection, getDocs, doc, setDoc, query, where, getDoc } from 'firebase/firestore';
 import { formatCurrency, logAuditAction } from '../../lib/utils';
@@ -14,9 +14,13 @@ import {
   DollarSign, 
   Layers, 
   Search,
-  CheckCircle
+  CheckCircle,
+  Wallet,
+  Plus
 } from 'lucide-react';
 import { getLocalCachedProducts, queueClosingForSync } from '../../lib/offlineManager';
+import { subscribeExpenses, getLocalExpenses } from '../../lib/expenseService';
+import { RecordExpenseModal } from '../common/RecordExpenseModal';
 
 interface DailyClosingViewProps {
   user: UserProfile;
@@ -41,7 +45,15 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
     itemsSold: 0
   });
 
-  // Physical cash drawer reconciliation
+  // Physical cash drawer reconciliation & expenses
+  const [shiftExpenses, setShiftExpenses] = useState<ExpenseRecord[]>(() => {
+    try {
+      return getLocalExpenses(tenantId).filter(e => e.date === todayStr);
+    } catch (e) {
+      return [];
+    }
+  });
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [declaredCash, setDeclaredCash] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -56,6 +68,14 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
   useEffect(() => {
     fetchClosingData();
   }, [tenantId]);
+
+  useEffect(() => {
+    const unsub = subscribeExpenses(tenantId, (all) => {
+      const todayExp = all.filter(e => e.date === todayStr);
+      setShiftExpenses(todayExp);
+    });
+    return () => unsub();
+  }, [tenantId, todayStr]);
 
   function calculateExpectedStock(product: Product): number {
     const opening = product.openingStock || 0;
@@ -286,11 +306,23 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
   });
 
   const currency = businessConfig?.currency || 'KSh';
-  const cashDeclaredNum = declaredCash ? parseFloat(declaredCash) : salesSummary.cash;
-  const cashVariance = cashDeclaredNum - salesSummary.cash;
+
+  // Expenses calculations for cash drawer reconciliation
+  const drawerCashExpenses = shiftExpenses
+    .filter(e => e.paymentSource === 'Cash Drawer')
+    .reduce((sum, e) => sum + e.amount, 0);
+  const otherExpenses = shiftExpenses
+    .filter(e => e.paymentSource !== 'Cash Drawer')
+    .reduce((sum, e) => sum + e.amount, 0);
+  const totalShiftExpenses = drawerCashExpenses + otherExpenses;
+
+  // Net Expected Drawer Cash = Gross Cash Sales - Drawer Cash Outlays
+  const expectedDrawerCash = Math.max(0, salesSummary.cash - drawerCashExpenses);
+  const cashDeclaredNum = declaredCash ? parseFloat(declaredCash) : expectedDrawerCash;
+  const cashVariance = cashDeclaredNum - expectedDrawerCash;
 
   const handleSubmitClosing = async () => {
-    if (!window.confirm("Submit today's end-of-day shift closing? Physical stock counts and cash totals will be archived for administrative review.")) {
+    if (!window.confirm("Submit today's end-of-day shift closing? Physical stock counts, cash drawer totals, and recorded expenses will be archived for administrative review.")) {
       return;
     }
 
@@ -335,6 +367,16 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
         },
         totalTransactions: salesSummary.transactions,
         totalItemsSold: salesSummary.itemsSold,
+        totalExpenses: totalShiftExpenses,
+        drawerCashExpenses: drawerCashExpenses,
+        expectedDrawerCash: expectedDrawerCash,
+        expensesList: shiftExpenses.map(e => ({
+          id: e.id,
+          amount: e.amount,
+          category: e.category,
+          reason: e.reason,
+          paymentSource: e.paymentSource
+        })),
         cashierDeclaredCash: cashDeclaredNum,
         cashVariance: cashVariance,
         notes: notes.trim() || undefined,
@@ -519,6 +561,70 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
             </table>
           </div>
         </div>
+
+        {/* Cash Drawer & Shift Expenses Reconciliation Summary */}
+        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2">
+              <DollarSign className="w-5 h-5 text-emerald-600" />
+              <h3 className="text-base font-bold text-slate-900">Submitted Cash Drawer & Expenses Reconciliation</h3>
+            </div>
+            {existingClosing.totalExpenses !== undefined && existingClosing.totalExpenses > 0 && (
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                Shift Expenses: -{formatCurrency(existingClosing.totalExpenses, currency)}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+              <p className="text-xs uppercase font-bold text-slate-500">Gross Cash Tendered</p>
+              <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(existingClosing.paymentTotals.Cash, currency)}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200">
+              <p className="text-xs uppercase font-bold text-rose-600">Drawer Cash Outlays</p>
+              <p className="text-lg font-black text-rose-600 mt-1">
+                -{formatCurrency(existingClosing.drawerCashExpenses ?? 0, currency)}
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
+              <p className="text-xs uppercase font-bold text-emerald-800">Net Expected Drawer Cash</p>
+              <p className="text-lg font-black text-emerald-700 mt-1">
+                {formatCurrency(existingClosing.expectedDrawerCash ?? (existingClosing.paymentTotals.Cash - (existingClosing.drawerCashExpenses || 0)), currency)}
+              </p>
+            </div>
+            <div className={`p-4 rounded-2xl border ${(existingClosing.cashVariance || 0) === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+              <p className="text-xs uppercase font-bold text-slate-600">Counted / Variance</p>
+              <p className="text-lg font-black text-slate-900 mt-1">
+                {formatCurrency(existingClosing.cashierDeclaredCash ?? 0, currency)}
+              </p>
+              <p className={`text-[11px] font-bold ${(existingClosing.cashVariance || 0) === 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                Variance: {(existingClosing.cashVariance || 0) === 0 ? 'Balanced (Exact)' : `${(existingClosing.cashVariance || 0) > 0 ? '+' : ''}${formatCurrency(existingClosing.cashVariance || 0, currency)}`}
+              </p>
+            </div>
+          </div>
+
+          {/* List of expenses if recorded */}
+          {existingClosing.expensesList && existingClosing.expensesList.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-2 mt-2">
+              <div className="text-xs font-bold text-slate-700">
+                Itemized Shift Outlays ({existingClosing.expensesList.length}):
+              </div>
+              <div className="divide-y divide-slate-200 max-h-40 overflow-y-auto pr-1">
+                {existingClosing.expensesList.map((exp, idx) => (
+                  <div key={idx} className="py-2 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-bold text-slate-900 mr-2">{exp.category}</span>
+                      <span className="text-slate-600">What for: <strong>{exp.reason}</strong></span>
+                      <span className="ml-2 text-[10px] text-slate-400">({exp.paymentSource})</span>
+                    </div>
+                    <span className="font-bold text-rose-600">-{formatCurrency(exp.amount, currency)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -554,7 +660,7 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       </div>
 
       {/* Sales Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Today's Sales</p>
           <p className="text-2xl font-black text-amber-700 mt-1">{formatCurrency(salesSummary.totalSales, currency)}</p>
@@ -562,15 +668,23 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Cash in Register</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Gross Cash Sales</p>
           <p className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(salesSummary.cash, currency)}</p>
-          <p className="text-xs text-slate-400 mt-1">Physical drawer baseline</p>
+          <p className="text-xs text-slate-400 mt-1">Total cash tendered</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">M-Pesa Received</p>
           <p className="text-2xl font-black text-emerald-700 mt-1">{formatCurrency(salesSummary.mpesa, currency)}</p>
           <p className="text-xs text-slate-400 mt-1">Till & Paybill transactions</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+          <p className="text-xs font-bold uppercase tracking-wider text-rose-600">Shift Expenses</p>
+          <p className="text-2xl font-black text-rose-600 mt-1">-{formatCurrency(totalShiftExpenses, currency)}</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {drawerCashExpenses > 0 ? `${formatCurrency(drawerCashExpenses, currency)} from drawer` : 'No drawer outlays'}
+          </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
@@ -716,16 +830,45 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
       </div>
 
       {/* Cash Drawer Reconciliation */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center space-x-2">
-          <DollarSign className="w-5 h-5 text-emerald-600" />
-          <h3 className="text-base font-bold text-slate-900">Physical Cash Drawer Reconciliation</h3>
+      <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Physical Cash Drawer Reconciliation</h3>
+              <p className="text-xs text-slate-500">Gross sales minus operational petty cash expenses deducted from register</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowExpenseModal(true)}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition-all cursor-pointer self-start sm:self-auto"
+          >
+            <Plus className="w-3.5 h-3.5 text-rose-600" />
+            <span>Record Missed Expense</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-            <p className="text-xs uppercase font-bold text-slate-500">Expected Cash (POS)</p>
+            <p className="text-xs uppercase font-bold text-slate-500">Gross Cash Sales</p>
             <p className="text-xl font-black text-slate-900 mt-1">{formatCurrency(salesSummary.cash, currency)}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Tendered at POS</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200">
+            <p className="text-xs uppercase font-bold text-rose-600">Less Drawer Outlays</p>
+            <p className="text-xl font-black text-rose-600 mt-1">-{formatCurrency(drawerCashExpenses, currency)}</p>
+            <p className="text-[11px] text-rose-500 mt-0.5">Paid from drawer float</p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
+            <p className="text-xs uppercase font-bold text-emerald-800">Net Expected in Drawer</p>
+            <p className="text-xl font-black text-emerald-700 mt-1">{formatCurrency(expectedDrawerCash, currency)}</p>
+            <p className="text-[11px] text-emerald-600 mt-0.5">Target physical balance</p>
           </div>
 
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
@@ -737,15 +880,57 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
               placeholder="Counted cash notes in drawer"
               className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:border-amber-600 focus:outline-none"
             />
-          </div>
-
-          <div className={`p-4 rounded-2xl border ${cashVariance === 0 ? 'bg-emerald-50 border-emerald-200' : cashVariance < 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
-            <p className="text-xs uppercase font-bold text-slate-600">Cash Variance</p>
-            <p className={`text-xl font-black mt-1 ${cashVariance === 0 ? 'text-emerald-700' : cashVariance < 0 ? 'text-red-700' : 'text-blue-700'}`}>
-              {cashVariance === 0 ? 'Balanced (KSh 0)' : `${cashVariance > 0 ? '+' : ''}${formatCurrency(cashVariance, currency)}`}
+            <p className={`text-[11px] font-bold mt-1 ${cashVariance === 0 ? 'text-emerald-600' : cashVariance < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+              Variance: {cashVariance === 0 ? 'Balanced (Exact)' : `${cashVariance > 0 ? '+' : ''}${formatCurrency(cashVariance, currency)}`}
             </p>
           </div>
         </div>
+
+        {/* Itemized Shift Expenses List */}
+        {shiftExpenses.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+              <span className="flex items-center space-x-1.5">
+                <Wallet className="w-4 h-4 text-amber-600" />
+                <span>Shift Expenses Recorded on Duty ({shiftExpenses.length}):</span>
+              </span>
+              <span className="text-rose-600 font-black">
+                Total Outlays: -{formatCurrency(totalShiftExpenses, currency)}
+              </span>
+            </div>
+
+            <div className="divide-y divide-slate-200 max-h-48 overflow-y-auto pr-1">
+              {shiftExpenses.map((exp) => (
+                <div key={exp.id} className="py-2.5 flex items-start justify-between text-xs gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900">{exp.category}</span>
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                        exp.paymentSource === 'Cash Drawer'
+                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                          : 'bg-blue-100 text-blue-900'
+                      }`}>
+                        {exp.paymentSource}
+                      </span>
+                      <span className="font-mono text-slate-400 text-[11px]">
+                        {exp.voucherNumber || exp.id.slice(-6)}
+                      </span>
+                    </div>
+                    <div className="text-slate-600 font-medium">
+                      What for: <strong className="text-slate-800 font-semibold">{exp.reason}</strong>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-black text-rose-600 text-sm">
+                      -{formatCurrency(exp.amount, currency)}
+                    </span>
+                    <div className="text-[10px] text-slate-400 font-mono">{exp.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Shift Closing Remarks */}
@@ -805,6 +990,15 @@ export function DailyClosingView({ user, businessConfig }: DailyClosingViewProps
           </button>
         </div>
       </div>
+
+      {/* Record Expense Modal */}
+      <RecordExpenseModal
+        isOpen={showExpenseModal}
+        onClose={() => setShowExpenseModal(false)}
+        user={user}
+        businessConfig={businessConfig}
+        onExpenseRecorded={() => fetchClosingData()}
+      />
     </div>
   );
 }

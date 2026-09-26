@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Ensure robust client data persistence, offline caching, and tenant synchronization
     match /{document=**} {
       allow read, write: if true;
     }

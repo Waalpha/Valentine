@@ -230,11 +230,53 @@ export interface DailyClosing {
   };
   totalTransactions: number;
   totalItemsSold: number;
+  totalExpenses?: number;
+  drawerCashExpenses?: number;
+  expectedDrawerCash?: number;
+  expensesList?: {
+    id: string;
+    amount: number;
+    category: string;
+    reason: string;
+    paymentSource: string;
+  }[];
   cashierDeclaredCash?: number;
   cashVariance?: number;
   notes?: string;
   submittedAt: number;
   status: 'submitted' | 'reviewed';
+}
+
+export type ExpenseCategory =
+  | 'Bar Supplies'
+  | 'Ice & Garnishes'
+  | 'Cleaning & Sanitation'
+  | 'Kitchen Ingredients'
+  | 'Transport & Errands'
+  | 'Casual Labor & Tips'
+  | 'Repairs & Maintenance'
+  | 'Utilities & Emergency'
+  | 'Other';
+
+export type ExpensePaymentSource = 'Cash Drawer' | 'M-Pesa' | 'Other';
+
+export interface ExpenseRecord {
+  id: string;
+  amount: number;
+  category: ExpenseCategory;
+  reason: string; // The mandatory "what for" explanation
+  paymentSource: ExpensePaymentSource;
+  receiptNumber?: string;
+  voucherNumber?: string;
+  cashierId: string;
+  cashierName: string;
+  businessDayId: string;
+  businessId: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm:ss
+  createdAt: number; // timestamp millis
+  notes?: string;
+  status: 'recorded' | 'approved' | 'voided';
 }
 
 export interface AuditLog {

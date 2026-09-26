@@ -15,6 +15,7 @@ import { CashierStockView } from './components/cashier/CashierStockView';
 import { DailyOpeningView } from './components/cashier/DailyOpeningView';
 import { DailyClosingView } from './components/cashier/DailyClosingView';
 import { WaiterOrdersView } from './components/cashier/WaiterOrdersView';
+import { CashierExpensesView } from './components/cashier/CashierExpensesView';
 
 import { WaiterLayout } from './components/waiter/WaiterLayout';
 
@@ -23,6 +24,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { ProductsView } from './components/admin/ProductsView';
 import { StockView } from './components/admin/StockView';
 import { SalesReportsView } from './components/admin/SalesReportsView';
+import { AdminExpensesView } from './components/admin/AdminExpensesView';
 import { ClosingsView } from './components/admin/ClosingsView';
 import { CashiersView } from './components/admin/CashiersView';
 import { AuditLogsView } from './components/admin/AuditLogsView';
@@ -97,7 +99,7 @@ export default function App() {
   });
 
   // Navigation tab states
-  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales'>('dashboard');
+  const [cashierTab, setCashierTab] = useState<'dashboard' | 'sell' | 'waiter_orders' | 'opening_stock' | 'stock' | 'closing' | 'sales' | 'expenses'>('dashboard');
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
   const isLoggingOutRef = useRef<boolean>(false);
@@ -343,6 +345,12 @@ export default function App() {
             businessConfig={businessConfig}
           />
         )}
+        {cashierTab === 'expenses' && (
+          <CashierExpensesView
+            user={userProfile}
+            businessConfig={businessConfig}
+          />
+        )}
       </CashierLayout>
     );
   }
@@ -405,6 +413,12 @@ export default function App() {
       )}
       {adminTab === 'sales' && (
         <SalesReportsView
+          user={userProfile}
+          businessConfig={businessConfig}
+        />
+      )}
+      {adminTab === 'expenses' && (
+        <AdminExpensesView
           user={userProfile}
           businessConfig={businessConfig}
         />
